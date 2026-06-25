@@ -59,7 +59,7 @@ npm run pm2:start
 
 ### One-Command Deploy
 ```bash
-wget -qO- https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh | bash
+wget -O deploy.sh https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh && chmod +x deploy.sh && bash deploy.sh
 ```
 
 The script will ask for:

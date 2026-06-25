@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ZidStore API - Auto Deployment Script
-# Run on VPS: wget -qO- https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh | bash
+# Download & run: wget -O deploy.sh https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh && chmod +x deploy.sh && bash deploy.sh
 
 set -e
 

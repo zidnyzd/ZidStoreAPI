@@ -38,17 +38,9 @@ router.get('/', (req, res) => {
     // Log successful access
     AuditLog.log('SCRIPT_DOWNLOAD', `Key: ${key}, Registered IP: ${apiKey.ip_address}`, clientIp);
 
-    // Serve the script file
-    const scriptPath = path.join(__dirname, '../../resources', 'zidstoretunnel');
-    
-    if (!fs.existsSync(scriptPath)) {
-        console.error('Script file not found at:', scriptPath);
-        return res.status(500).send('Error: Installation script not found on server.');
-    }
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="zidstoretunnel"');
-    res.sendFile(scriptPath);
+    // Redirect to GitHub raw URL for always-latest script
+    const githubUrl = 'https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel';
+    res.redirect(302, githubUrl);
 });
 
 // GET /api/validate - Validate key (returns JSON, used by dashboard/admin)

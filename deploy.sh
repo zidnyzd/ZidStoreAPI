@@ -98,7 +98,19 @@ apt-get update -y
 
 # Install essential packages first (for minimal VPS installs)
 echo -e "${BLUE}[2/8] Installing essential packages...${NC}"
-apt-get install -y git curl wget screen dnsutils ca-certificates gnupg lsb-release
+ESSENTIAL_PKGS="git curl wget screen dnsutils ca-certificates gnupg lsb-release"
+MISSING_PKGS=""
+for pkg in $ESSENTIAL_PKGS; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        MISSING_PKGS="$MISSING_PKGS $pkg"
+    fi
+done
+if [[ -n "$MISSING_PKGS" ]]; then
+    apt-get install -y $MISSING_PKGS
+    echo -e "${GREEN}Installed: $MISSING_PKGS${NC}"
+else
+    echo -e "${GREEN}All essential packages already installed${NC}"
+fi
 
 # Install Node.js
 echo -e "${BLUE}[3/8] Installing Node.js...${NC}"
@@ -167,22 +179,15 @@ echo -e "${BLUE}[9/8] Setting up Nginx reverse proxy + SSL...${NC}"
 # Install Nginx
 if ! command -v nginx &> /dev/null; then
     apt-get install -y nginx
+    echo -e "${GREEN}Nginx installed${NC}"
 else
     echo -e "${GREEN}Nginx already installed${NC}"
 fi
 
-# Stop Nginx temporarily for certbot
-systemctl stop nginx 2>/dev/null || true
-
 # Install certbot
 if ! command -v certbot &> /dev/null; then
-    if [[ "$OS_ID" == "debian" ]]; then
-        apt-get install -y certbot
-    elif [[ "$OS_ID" == "ubuntu" ]]; then
-        apt-get install -y certbot
-    else
-        apt-get install -y certbot
-    fi
+    apt-get install -y certbot
+    echo -e "${GREEN}Certbot installed${NC}"
 else
     echo -e "${GREEN}Certbot already installed${NC}"
 fi
@@ -266,21 +271,29 @@ nginx -t
 systemctl start nginx
 systemctl enable nginx
 
-# Get SSL certificate
-echo -e "${BLUE}Requesting SSL certificate from Let's Encrypt...${NC}"
-certbot certonly --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --standalone || {
-    echo -e "${YELLOW}Certbot failed. Trying standalone mode...${NC}"
-    systemctl stop nginx
-    certbot certonly --standalone -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive || {
-        echo -e "${RED}SSL certificate request failed. Domain may not be pointing to this server.${NC}"
-        echo -e "${YELLOW}You can try again later with: certbot --nginx -d ${DOMAIN}${NC}"
+# Get SSL certificate (skip if already exists)
+if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+    echo -e "${GREEN}SSL certificate already exists for ${DOMAIN}${NC}"
+else
+    echo -e "${BLUE}Requesting SSL certificate from Let's Encrypt...${NC}"
+    certbot certonly --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --standalone || {
+        echo -e "${YELLOW}Certbot failed. Trying standalone mode...${NC}"
+        systemctl stop nginx
+        certbot certonly --standalone -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive || {
+            echo -e "${RED}SSL certificate request failed. Domain may not be pointing to this server.${NC}"
+            echo -e "${YELLOW}You can try again later with: certbot --nginx -d ${DOMAIN}${NC}"
+        }
+        systemctl start nginx
     }
-    systemctl start nginx
-}
+fi
 
-# Setup auto-renewal
-echo -e "${BLUE}Setting up certificate auto-renewal...${NC}"
-(crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | crontab -
+# Setup auto-renewal (only if not already set)
+if ! crontab -l 2>/dev/null | grep -q "certbot renew"; then
+    echo -e "${BLUE}Setting up certificate auto-renewal...${NC}"
+    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | crontab -
+else
+    echo -e "${GREEN}Auto-renewal already configured${NC}"
+fi
 
 # Reload Nginx to apply SSL
 nginx -t && systemctl reload nginx

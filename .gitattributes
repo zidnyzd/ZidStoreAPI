@@ -1,0 +1,57 @@
+# Force LF line endings for all shell scripts
+*.sh text eol=lf
+
+# Force LF for all files in src-bin (these are bash scripts without extension)
+resources/src-bin/addshadowsocks text eol=lf
+resources/src-bin/addssh text eol=lf
+resources/src-bin/addtrojan text eol=lf
+resources/src-bin/addvless text eol=lf
+resources/src-bin/addvmess text eol=lf
+resources/src-bin/apicheck text eol=lf
+resources/src-bin/apicreate text eol=lf
+resources/src-bin/apidelete text eol=lf
+resources/src-bin/apirenew text eol=lf
+resources/src-bin/autokill text eol=lf
+resources/src-bin/backuprestore text eol=lf
+resources/src-bin/backuprestore.js text eol=lf
+resources/src-bin/bot text eol=lf
+resources/src-bin/checkshadowsocks text eol=lf
+resources/src-bin/checkssh text eol=lf
+resources/src-bin/checktrojan text eol=lf
+resources/src-bin/checkvless text eol=lf
+resources/src-bin/checkvmess text eol=lf
+resources/src-bin/dellshadowsocks text eol=lf
+resources/src-bin/dellssh text eol=lf
+resources/src-bin/delltrojan text eol=lf
+resources/src-bin/dellvless text eol=lf
+resources/src-bin/dellvmess text eol=lf
+resources/src-bin/exp text eol=lf
+resources/src-bin/ft text eol=lf
+resources/src-bin/limitip text eol=lf
+resources/src-bin/limitipssh text eol=lf
+resources/src-bin/logclear text eol=lf
+resources/src-bin/menu text eol=lf
+resources/src-bin/menusetting text eol=lf
+resources/src-bin/menushadowsocks text eol=lf
+resources/src-bin/menussh text eol=lf
+resources/src-bin/menutrojan text eol=lf
+resources/src-bin/menuvless text eol=lf
+resources/src-bin/menuvmess text eol=lf
+resources/src-bin/quota text eol=lf
+resources/src-bin/renewssh text eol=lf
+resources/src-bin/renewtrojan text eol=lf
+resources/src-bin/renewvless text eol=lf
+resources/src-bin/renewvmess text eol=lf
+resources/src-bin/trial text eol=lf
+resources/src-bin/trialshadowsocks text eol=lf
+resources/src-bin/trialssh text eol=lf
+resources/src-bin/trialtrojan text eol=lf
+resources/src-bin/trialvless text eol=lf
+resources/src-bin/trialvmess text eol=lf
+
+# Binary files
+resources/src-bin/src.zip binary
+resources/fodder/* binary
+resources/bot/* binary
+resources/slowdns/* binary
+resources/xray-config/* text eol=lf

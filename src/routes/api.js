@@ -157,7 +157,7 @@ router.get('/api/stats', (req, res) => {
     });
 });
 
-// GET /resources/src.zip - Serve src.zip
+// GET /resources/src.zip - Serve src.zip (legacy path)
 router.get('/resources/src.zip', (req, res) => {
     const srcPath = path.join(__dirname, '../../resources', 'src.zip');
     if (!fs.existsSync(srcPath)) {
@@ -168,11 +168,22 @@ router.get('/resources/src.zip', (req, res) => {
     res.sendFile(srcPath);
 });
 
-// GET /resources/bot.zip - Serve bot.zip
-router.get('/resources/bot.zip', (req, res) => {
-    const botPath = path.join(__dirname, '../../resources', 'bot.zip');
+// GET /resources/src-bin/src.zip - Serve src.zip for installer
+router.get('/resources/src-bin/src.zip', (req, res) => {
+    const srcPath = path.join(__dirname, '../../resources', 'src-bin', 'src.zip');
+    if (!fs.existsSync(srcPath)) {
+        return res.status(404).send('Error: src-bin/src.zip not found');
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="src.zip"');
+    res.sendFile(srcPath);
+});
+
+// GET /resources/bot/bot.zip - Serve bot.zip
+router.get('/resources/bot/bot.zip', (req, res) => {
+    const botPath = path.join(__dirname, '../../resources', 'bot', 'bot.zip');
     if (!fs.existsSync(botPath)) {
-        return res.status(404).send('Error: bot.zip not found');
+        return res.status(404).send('Error: bot/bot.zip not found');
     }
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', 'attachment; filename="bot.zip"');

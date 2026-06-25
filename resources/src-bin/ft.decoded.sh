@@ -1,0 +1,170 @@
+#!/bin/bash
+
+# Mengambil URL dari argumen pertama
+data_acc="https://zds.web.id/api/exp?key="
+data_key=$(cat /root/.key)
+
+status_code=$(curl -s -o /dev/null -w "%{http_code}" $data_acc$data_key)
+
+if [ $status_code -eq 200 ]; then
+    expiry_date=$(date -d "$(curl -s $data_acc$data_key)" +%s)
+    current_date=$(date +%s)
+    remaining_days=$(( (expiry_date - current_date) / 86400 ))
+
+    if [ $expiry_date -gt $current_date ]; then
+
+        # Colors
+        green="\e[38;5;82m"
+        red="\e[38;5;196m"
+        neutral="\e[0m"
+        orange="\e[38;5;130m"
+        blue="\e[38;5;39m"
+        yellow="\e[38;5;226m"
+        purple="\e[38;5;141m"
+        bold_white="\e[1;37m"
+        reset="\e[0m"
+        pink="\e[38;5;205m"
+
+        print_rainbow() {
+            local text="$1"
+            local length=${#text}
+            local start_color=(0 5 0)
+            local mid_color=(0 200 0)
+            local end_color=(0 5 0)
+
+            for ((i = 0; i < length; i++)); do
+                local progress=$((i * 100 / (length - 1)))
+
+                if [ $progress -lt 50 ]; then
+                    local factor=$((progress * 2))
+                    r=$(( (start_color[0] * (100 - factor) + mid_color[0] * factor) / 100 ))
+                    g=$(( (start_color[1] * (100 - factor) + mid_color[1] * factor) / 100 ))
+                    b=$(( (start_color[2] * (100 - factor) + mid_color[2] * factor) / 100 ))
+                else
+                    local factor=$(((progress - 50) * 2))
+                    r=$(( (mid_color[0] * (100 - factor) + end_color[0] * factor) / 100 ))
+                    g=$(( (mid_color[1] * (100 - factor) + end_color[1] * factor) / 100 ))
+                    b=$(( (mid_color[2] * (100 - factor) + end_color[2] * factor) / 100 ))
+                fi
+
+                printf "\e[38;2;%d;%d;%dm%s" "$r" "$g" "$b" "${text:$i:1}"
+            done
+            echo -e "$reset" # Reset color at the end
+        }
+
+        # Function to count accounts
+        count_accounts() {
+            if [ ! -e "/etc/xray/$1/.$1.db" ]; then
+                mkdir -p "/etc/xray/$1"
+                touch "/etc/xray/$1/.$1.db"
+            fi
+
+            accounts=$(cat "/etc/xray/$1/.$1.db")
+            if [[ $accounts = "" ]]; then
+                echo "0"
+            else
+                cat "/etc/xray/$1/.$1.db" | grep "###" | wc -l
+            fi
+        }
+        # Count accounts
+        vm=$(count_accounts "vmess")
+        vl=$(count_accounts "vless")
+        tr=$(count_accounts "trojan")
+        ss=$(count_accounts "shadowsocks")
+        ssh=$(cat "/etc/ssh/.ssh.db" | grep "###" | wc -l)
+
+
+        # Check service status
+        cek_status() {
+            status=$(systemctl is-active --quiet $1 && echo "aktif" || echo "nonaktif")
+            if [ "$status" = "aktif" ]; then
+                echo -e "${green}GOOD${neutral}"
+            else
+                echo -e "${red}BAD${neutral}"
+            fi
+        }
+        # Function to display menu
+        display_menu() {
+            # Display menu
+            clear
+            echo -e "   ${orange}─────────────────────────────────────────${neutral}"
+            echo -e "         ${green}.::::. ZIDSTORE .::::.${neutral}"
+            echo -e "   ${orange}─────────────────────────────────────────${neutral}"
+            echo -e "      \e[38;5;196m• \e[0mSYSTEM    : $(cat /etc/os-release | grep -w PRETTY_NAME | head -n1 | sed 's/=//g' | sed 's/"//g' | sed 's/PRETTY_NAME//g' | cut -d '.' -f 1-3 2>/dev/null || echo "Unable to detect system")"
+            total_ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "N/A")
+            available_ram_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null || echo "N/A")
+
+            if [ "$total_ram_kb" != "N/A" ] && [ "$available_ram_kb" != "N/A" ]; then
+                total_ram_gb=$(awk "BEGIN {printf \"%.2f\", $total_ram_kb / 1024 / 1024}")
+                used_ram_kb=$((total_ram_kb - available_ram_kb))
+                used_ram_gb=$(awk "BEGIN {printf \"%.2f\", $used_ram_kb / 1024 / 1024}")
+                echo -e "      \e[38;5;196m• \e[0mRAM       : ${total_ram_gb}GB / ${used_ram_gb}GB"
+            else
+                echo -e "      \e[38;5;196m• \e[0mRAM       : N/A"
+            fi
+            echo -e "      \e[38;5;196m• \e[0mUPTIME    : $(uptime -p 2>/dev/null | cut -d " " -f 2-10000 || echo "Unable to detect uptime")"
+            echo -e "      \e[38;5;196m• \e[0mCPU CORE  : $(printf '%-1s' "$(grep -c cpu[0-9] /proc/stat 2>/dev/null || echo "N/A")")"
+            echo -e "      \e[38;5;196m• \e[0mISP       : $(cat /etc/xray/isp 2>/dev/null | cut -d ' ' -f 1-2 || echo "Unable to detect ISP")"
+            echo -e "      \e[38;5;196m• \e[0mCITY      : $(cat /etc/xray/city 2>/dev/null || echo "Unable to detect city")"
+            echo -e "      \e[38;5;196m• \e[0mIP        : $(wget -qO- ipv4.icanhazip.com 2>/dev/null || echo "Unable to detect IP")"
+            echo -e "      \e[38;5;196m• \e[0mDOMAIN    : $(cat /etc/xray/domain 2>/dev/null || echo "No domain registered")"
+            echo -e "      \e[38;5;196m• \e[0mNS        : $(cat /etc/xray/dns 2>/dev/null || echo "No NS registered")"
+            print_rainbow "       ┌───────────────────────────────┐"
+            echo -e "          SSH/OVPN    : $ssh ACCOUNT"
+            echo -e "          VMESS       : $vm ACCOUNT"
+            echo -e "          VLESS       : $vl ACCOUNT"
+            echo -e "          TROJAN      : $tr ACCOUNT"
+            echo -e "          SHADOWSOCKS : $ss ACCOUNT"
+            print_rainbow "       └───────────────────────────────┘"
+            echo -e "   ${orange}─────────────────────────────────────────${neutral}"
+            echo -e "           ${neutral}XRAY SERVICE STATUS "$(cek_status vmess@config)"${neutral}"
+            echo -e "         ${neutral}HAPROXY SERVICE STATUS "$(cek_status haproxy)"${neutral}"
+            echo -e "         ${neutral}SSH/OVPN SERVICE STATUS "$(cek_status ssh)"${neutral}"
+            echo -e "   ${orange}─────────────────────────────────────────${neutral}"
+            print_rainbow "   ┌─────────────────────────────────────────┐"
+            echo -e "   ${green}• ${neutral}SCRIPT KEY : $(cat /root/.key || echo "Unable to retrieve Script ID")"
+            echo -e "   ${green}• ${neutral}SCRIPT EXP : $remaining_days DAYS REMAINING"
+            print_rainbow "   └─────────────────────────────────────────┘"
+            echo -e "            ${green}SCRIPT VERSION: V2.0 LTS${neutral}"
+            echo -e "              ${orange}───${green}───${yellow}───${blue}───${purple}───${red}───${neutral}"
+            echo -e ""
+            echo -e ""
+            echo -e " type ${red}menu${neutral} to continue"
+        }
+
+        case "$1" in
+        "dashboard")
+            display_menu
+            ;;
+        *)
+            echo "Unknown command. Use 'dashboard'."
+            ;;
+        esac
+    else
+        echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+        echo -e "\e[38;5;82m         ZIDSTORE AUTOSCRIPT          \033[0m"
+        echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+        echo -e ""
+        echo -e "            \033[31mPERMISSION DENIED !\033[0m"
+        echo -e "   \033[0;33mYour VPS\033[0m $(wget -qO- ipv4.icanhazip.com) \033[0;33mHas been Banned\033[0m"
+        echo -e "     \033[0;33mBuy access permissions for scripts\033[0m"
+        echo -e "             \033[0;33mContact Admin :\033[0m"
+        echo -e "      \033[0;32mWhatsApp\033[0m wa.me/6281584099035"
+        echo -e "         \033[0;96mTelegram\033[0m t.me/storezid2"
+        echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+        exit
+    fi
+else
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e "\e[38;5;82m         ZIDSTORE AUTOSCRIPT          \033[0m"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e ""
+    echo -e "            \033[31mPERMISSION DENIED !\033[0m"
+    echo -e "   \033[0;33mYour VPS\033[0m $(wget -qO- ipv4.icanhazip.com) \033[0;33mHas been Banned\033[0m"
+    echo -e "     \033[0;33mBuy access permissions for scripts\033[0m"
+    echo -e "             \033[0;33mContact Admin :\033[0m"
+    echo -e "      \033[0;32mWhatsApp\033[0m wa.me/6281584099035"
+    echo -e "         \033[0;96mTelegram\033[0m t.me/storezid2"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    exit
+fi

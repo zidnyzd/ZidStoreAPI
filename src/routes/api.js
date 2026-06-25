@@ -94,6 +94,29 @@ router.get('/api/key', (req, res) => {
     res.type('text/plain').send(apiKey.key);
 });
 
+// GET /api/exp - Return expiration date for key validation (used by decoded scripts)
+router.get('/api/exp', (req, res) => {
+    const { key } = req.query;
+
+    if (!key) {
+        return res.status(400).send('Missing key');
+    }
+
+    const apiKey = ApiKey.findByKey(key);
+    
+    if (!apiKey) {
+        return res.status(403).send('Invalid key');
+    }
+
+    if (new Date(apiKey.expires_at) < new Date()) {
+        ApiKey.deactivate(key);
+        return res.status(403).send('Key expired');
+    }
+
+    // Return expiration date in format expected by scripts
+    res.type('text/plain').send(apiKey.expires_at);
+});
+
 // POST /api/register - Register new IP (used by bot or admin panel)
 router.post('/api/register', (req, res) => {
     const { ip, days } = req.body;

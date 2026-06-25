@@ -1,0 +1,280 @@
+#!/bin/bash
+
+# Fetch URL from the first argument
+data_acc="https://zds.web.id/api/exp?key="
+data_key=$(cat /root/.key)
+
+status_code=$(curl -s -o /dev/null -w "%{http_code}" $data_acc$data_key)
+
+if [ $status_code -eq 200 ]; then
+    expiry_date=$(date -d "$(curl -s $data_acc$data_key)" +%s)
+    current_date=$(date +%s)
+    remaining_days=$(( (expiry_date - current_date) / 86400 ))
+
+    if [ $expiry_date -gt $current_date ]; then
+
+    
+# Colors
+red="\e[91m"
+green="\e[92m"
+yellow="\e[93m"
+blue="\e[94m"
+purple="\e[95m"
+cyan="\e[96m"
+white="\e[97m"
+reset="\e[0m"
+
+# Function to print rainbow text
+print_rainbow() {
+    local text="$1"
+    local length=${#text}
+    local start_color=(255 255 0) # yellow
+    local mid_color=(0 255 0)     # green
+    local end_color=(255 255 0)   # yellow
+
+    for ((i = 0; i < length; i++)); do
+        local progress=$((i * 100 / (length - 1)))
+
+        if [ $progress -lt 50 ]; then
+            local factor=$((progress * 2))
+            r=$((start_color[0] * (100 - factor) / 100 + mid_color[0] * factor / 100))
+            g=$((start_color[1] * (100 - factor) / 100 + mid_color[1] * factor / 100))
+            b=$((start_color[2] * (100 - factor) / 100 + mid_color[2] * factor / 100))
+        else
+            local factor=$(((progress - 50) * 2))
+            r=$((mid_color[0] * (100 - factor) / 100 + end_color[0] * factor / 100))
+            g=$((mid_color[1] * (100 - factor) / 100 + end_color[1] * factor / 100))
+            b=$((mid_color[2] * (100 - factor) / 100 + end_color[2] * factor / 100))
+        fi
+
+        printf "\e[38;2;%d;%d;%dm%s" "$r" "$g" "$b" "${text:$i:1}"
+    done
+    echo -e "$reset"
+}
+
+# Variables
+ip=$(wget -qO- ipv4.icanhazip.com)
+city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
+pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Pubkey not available")
+ns_domain=$(cat /etc/xray/dns 2>/dev/null || echo "NS domain not set")
+domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
+
+# Loading animation
+echo ""
+echo -ne "${yellow}Preparing Premium Account${reset}"
+for i in {1..2}; do
+    for j in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
+        echo -ne "\r${yellow}Preparing Premium Account $j${reset}"
+        sleep 0.1
+    done
+done
+echo -ne "\r${yellow}Premium Account Ready to be created!${reset}\n"
+sleep 1
+clear
+
+# User data input
+print_rainbow "┌─────────────────────────────────────────┐"
+print_rainbow "│            ENTER USER DATA              │"
+print_rainbow "└─────────────────────────────────────────┘"
+while true; do
+    read -p "   Name: " user
+    if [[ ${#user} -lt 3 || ! "$user" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        printf "\033[1A\033[0J"
+        echo -e "${red}   Username cannot be empty${reset}"
+        continue
+    fi
+    if grep -q "^### $user " /etc/ssh/.ssh.db; then
+        random_number=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 5)
+        user="${random_number}${user}"
+        echo -e "${yellow}   Username already exists. New username used: $user${reset}"
+        break
+    else
+        break
+    fi
+done
+echo ""
+printf "\033[10A\033[0J"
+print_rainbow "┌─────────────────────────────────────────┐"
+print_rainbow "│  .::.  Script by ZIDSTORE  .::.    │"
+print_rainbow "│      Input ssh/openvpn account deps     │"
+print_rainbow "│        Set IP Limit for Account         │"
+print_rainbow "└─────────────────────────────────────────┘"
+echo "   Username : $user"
+while true; do
+    read -p "   Password: " passwd
+    if [[ -z "$passwd" ]]; then
+        echo -e "${red}   Password cannot be empty${reset}"
+    elif [[ ${#passwd} -lt 6 ]]; then
+        echo -e "${red}   Password must be at least 6 characters${reset}"
+    elif ! [[ $passwd =~ ^[a-zA-Z0-9]+$ ]]; then
+        echo -e "${red}   Password can only contain letters and numbers${reset}"
+    else
+        break
+    fi
+done
+
+while true; do
+    read -p "   Active period (days): " expired
+    if [[ -z "$expired" ]]; then
+        echo -e "${red}   Active period cannot be empty${reset}"
+    elif ! [[ $expired =~ ^[0-9]+$ ]]; then
+        echo -e "${red}   Active period must be a number${reset}"
+    elif [[ $expired -lt 1 ]]; then
+        echo -e "${red}   Active period must be at least 1 day${reset}"
+    else
+        break
+    fi
+done
+
+while true; do
+    read -p "   IP limit: " iplim
+    if [[ -z "$iplim" ]]; then
+        echo -e "${red}   IP limit cannot be empty${reset}"
+    elif ! [[ $iplim =~ ^[0-9]+$ ]]; then
+        echo -e "${red}   IP limit must be a number${reset}"
+    elif [[ $iplim -lt 1 ]]; then
+        echo -e "${red}   IP limit must be at least 1${reset}"
+    else
+        break
+    fi
+done
+
+# Account creation process
+useradd -e $(date -d "$expired days" +"%Y-%m-%d") -s /bin/false -M $user
+exp="$(chage -l $user | grep "Account expires" | awk -F": " '{print $2}')"
+echo -e "$passwd\n$passwd\n" | passwd $user &>/dev/null
+
+if [[ $iplim != "0" ]]; then
+    echo "${iplim}" >/etc/ssh/${user}
+fi
+echo "### ${user} $(date -d "$expired days" +"%Y-%m-%d")" >>/etc/ssh/.ssh.db
+
+# Create configuration file
+cat >/var/www/html/ssh-$user.txt <<END
+---------------------
+SSH OVPN Account Details
+---------------------
+Username         : $user
+Password         : $passwd
+---------------------
+IP               : $ip
+Host             : $domain
+Slowdns Host     : ${ns_domain}
+Public Key       : ${pubkey}
+Location         : $city
+OpenSSH Port     : 443, 80, 22
+UdpSSH Port      : 1-65535
+Dropbear Port    : 443, 109
+Dropbear WS Port : 443, 109
+SSH WS Port      : 80
+SSH SSL WS Port  : 443
+SSL/TLS Port     : 443
+OVPN WS SSL Port : 443
+OVPN SSL Port    : 443
+OVPN TCP Port    : 443, 1194
+OVPN UDP Port    : 2200
+BadVPN UDP       : 7100, 7300, 7300
+---------------------
+WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf] 
+---------------------
+OpenVPN Link     : http://$domain:85
+---------------------
+Expiration       : $exp
+END
+
+clear
+print_rainbow "───────────────────────────"
+print_rainbow "     SSH OVPN Account      "
+print_rainbow "───────────────────────────"
+echo -e "Username         : $user"
+echo -e "Password         : $passwd"
+print_rainbow "───────────────────────────"
+echo -e "IP               : $ip"
+echo -e "Host             : $domain"
+echo -e "Slowdns Host     : ${ns_domain}"
+echo -e "Location         : $city"
+echo -e "OpenSSH Port     : 443, 80, 22"
+echo -e "UdpSSH Port      : 1-65535"
+echo -e "DNS Port         : 443, 53, 22"
+echo -e "Dropbear Port    : 443, 109"
+echo -e "SSH WS Port      : 80"
+echo -e "SSH SSL WS Port  : 443"
+echo -e "SSL/TLS Port     : 443"
+echo -e "OVPN SSL Port    : 443"
+echo -e "OVPN TCP Port    : 1194"
+echo -e "OVPN UDP Port    : 2200"
+echo -e "BadVPN UDP       : 7100, 7300, 7300"
+echo -e "SlowDns Public Key: ${pubkey}"
+print_rainbow "───────────────────────────"
+echo -e "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
+print_rainbow "───────────────────────────"
+echo -e "OpenVPN Link     : https://$domain:81/allovpn.zip"
+print_rainbow "───────────────────────────"
+echo -e "Save Account Link: https://$domain:81/ssh-$user.txt"
+print_rainbow "───────────────────────────"
+echo -e "Expiration       : $exp"
+echo -e ""
+
+# Save log
+{
+    echo "───────────────────────────"
+    echo "     SSH OVPN Account     "
+    echo "───────────────────────────"
+    echo "Username         : $user"
+    echo "Password         : $passwd"
+    echo "───────────────────────────"
+    echo "IP               : $ip"
+    echo "Host             : $domain"
+    echo "Slowdns Host     : ${ns_domain}"
+    echo "Location         : $city"
+    echo "OpenSSH Port     : 443, 80, 22"
+    echo "UdpSSH Port      : 1-65535"
+    echo "DNS Port         : 443, 53, 22"
+    echo "Dropbear Port    : 443, 109"
+    echo "SSH WS Port      : 80, 8080"
+    echo "SSH SSL WS Port  : 443"
+    echo "SSL/TLS Port     : 443"
+    echo "OVPN SSL Port    : 443"
+    echo "OVPN TCP Port    : 1194"
+    echo "OVPN UDP Port    : 2200"
+    echo "Squid Proxy      : 3128"
+    echo "BadVPN UDP       : 7100, 7300, 7300"
+    echo "SlowDns Public Key: ${pubkey}"
+    echo "───────────────────────────"
+    echo "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
+    echo "───────────────────────────"
+    echo "OpenVPN Link     : https://$domain:81/allovpn.zip"
+    echo "───────────────────────────"
+    echo "Save Account Link: https://$domain:81/ssh-$user.txt"
+    echo "───────────────────────────"
+    echo "Expiration       : $exp"
+    echo ""
+} >>/etc/xray/log-createssh-${user}.log
+else
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e "\e[38;5;82m         ZIDSTORE AUTOSCRIPT          \033[0m"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e ""
+    echo -e "            \033[31mPERMISSION DENIED !\033[0m"
+    echo -e "   \033[0;33mYour VPS\033[0m $(wget -qO- ipv4.icanhazip.com) \033[0;33mHas been Banned\033[0m"
+    echo -e "     \033[0;33mBuy access permissions for scripts\033[0m"
+    echo -e "             \033[0;33mContact Admin :\033[0m"
+    echo -e "      \033[0;32mWhatsApp\033[0m wa.me/6281584099035"
+    echo -e "         \033[0;96mTelegram\033[0m t.me/storezid2"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    exit
+fi
+else
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e "\e[38;5;82m         ZIDSTORE AUTOSCRIPT          \033[0m"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    echo -e ""
+    echo -e "            \033[31mPERMISSION DENIED !\033[0m"
+    echo -e "   \033[0;33mYour VPS\033[0m $(wget -qO- ipv4.icanhazip.com) \033[0;33mHas been Banned\033[0m"
+    echo -e "     \033[0;33mBuy access permissions for scripts\033[0m"
+    echo -e "             \033[0;33mContact Admin :\033[0m"
+    echo -e "      \033[0;32mWhatsApp\033[0m wa.me/6281584099035"
+    echo -e "         \033[0;96mTelegram\033[0m t.me/storezid2"
+    echo -e "\e[38;5;130m────────────────────────────────────────────\033[0m"
+    exit
+fi

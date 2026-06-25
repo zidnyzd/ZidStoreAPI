@@ -69,7 +69,8 @@ class Server(threading.Thread):
     def removeConn(self, conn):
         try:
             self.threadsLock.acquire()
-            self.threads.remove(conn)
+            if conn in self.threads:
+                self.threads.remove(conn)
         finally:
             self.threadsLock.release()
 
@@ -132,7 +133,11 @@ class ConnectionHandler(threading.Thread):
                 self.method_CONNECT(hostPort)
             else:
                 print('- No X-Real-Host!')
-                self.client.send('HTTP/1.1 400 NoXRealHost!\r\n\r\n'.encode())
+                try:
+                    self.client.send('HTTP/1.1 400 NoXRealHost!\r\n\r\n'.encode())
+                except (BrokenPipeError, OSError, socket.error):
+                    # Client disconnected before we could send error response
+                    pass
 
         except Exception as e:
             self.log += ' - error: ' + str(e)
@@ -140,7 +145,11 @@ class ConnectionHandler(threading.Thread):
             pass
         finally:
             if not self.clientClosed:
-                self.client.sendall(RESPONSE.encode())
+                try:
+                    self.client.sendall(RESPONSE.encode())
+                except (BrokenPipeError, OSError, socket.error):
+                    # Client disconnected before we could send response
+                    pass
             self.close()
             self.server.removeConn(self)
 
@@ -180,7 +189,11 @@ class ConnectionHandler(threading.Thread):
         self.log += ' - CONNECT ' + path
 
         self.connect_target(path)
-        self.client.sendall(RESPONSE.encode())
+        try:
+            self.client.sendall(RESPONSE.encode())
+        except (BrokenPipeError, OSError, socket.error):
+            # Client disconnected before we could send response
+            return
         self.client_buffer = ''
 
         self.server.printLog(self.log)
@@ -201,11 +214,19 @@ class ConnectionHandler(threading.Thread):
                         data = in_.recv(BUFLEN)
                         if data:
                             if in_ is self.target:
-                                self.client.send(data)
+                                try:
+                                    self.client.send(data)
+                                except (BrokenPipeError, OSError, socket.error):
+                                    error = True
+                                    break
                             else:
-                                while data:
-                                    byte = self.target.send(data)
-                                    data = data[byte:]
+                                try:
+                                    while data:
+                                        byte = self.target.send(data)
+                                        data = data[byte:]
+                                except (BrokenPipeError, OSError, socket.error):
+                                    error = True
+                                    break
 
                             count = 0
                         else:

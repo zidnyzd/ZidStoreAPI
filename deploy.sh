@@ -95,10 +95,13 @@ fi
 echo ""
 echo -e "${BLUE}[1/8] Updating system...${NC}"
 apt-get update -y
-apt-get upgrade -y
+
+# Install essential packages first (for minimal VPS installs)
+echo -e "${BLUE}[2/8] Installing essential packages...${NC}"
+apt-get install -y git curl wget screen dnsutils ca-certificates gnupg lsb-release
 
 # Install Node.js
-echo -e "${BLUE}[2/8] Installing Node.js...${NC}"
+echo -e "${BLUE}[3/8] Installing Node.js...${NC}"
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
@@ -107,7 +110,7 @@ else
 fi
 
 # Install PM2
-echo -e "${BLUE}[3/8] Installing PM2...${NC}"
+echo -e "${BLUE}[4/8] Installing PM2...${NC}"
 if ! command -v pm2 &> /dev/null; then
     npm install -g pm2
 else
@@ -115,7 +118,7 @@ else
 fi
 
 # Clone repository
-echo -e "${BLUE}[4/8] Cloning ZidStoreAPI...${NC}"
+echo -e "${BLUE}[5/8] Cloning ZidStoreAPI...${NC}"
 if [[ -d "$INSTALL_DIR" ]]; then
     echo -e "${YELLOW}Directory exists, pulling latest...${NC}"
     cd "$INSTALL_DIR"
@@ -126,12 +129,12 @@ else
 fi
 
 # Install dependencies
-echo -e "${BLUE}[5/8] Installing dependencies...${NC}"
+echo -e "${BLUE}[6/8] Installing dependencies...${NC}"
 cd "$INSTALL_DIR"
 npm install --production
 
 # Create .env file
-echo -e "${BLUE}[6/8] Configuring environment...${NC}"
+echo -e "${BLUE}[7/8] Configuring environment...${NC}"
 mkdir -p "$INSTALL_DIR/data"
 
 cat > "$INSTALL_DIR/.env" <<EOF
@@ -152,14 +155,14 @@ wget -q -O "$INSTALL_DIR/resources/zidstoretunnel" https://raw.githubusercontent
 chmod +x "$INSTALL_DIR/resources/zidstoretunnel"
 
 # Start with PM2
-echo -e "${BLUE}[7/8] Starting ZidStore API with PM2...${NC}"
+echo -e "${BLUE}[8/8] Starting ZidStore API with PM2...${NC}"
 pm2 delete zidstore-api 2>/dev/null || true
 pm2 start src/index.js --name zidstore-api
 pm2 save
 pm2 startup
 
 # Setup Nginx + SSL
-echo -e "${BLUE}[8/8] Setting up Nginx reverse proxy + SSL...${NC}"
+echo -e "${BLUE}[9/8] Setting up Nginx reverse proxy + SSL...${NC}"
 
 # Install Nginx
 if ! command -v nginx &> /dev/null; then

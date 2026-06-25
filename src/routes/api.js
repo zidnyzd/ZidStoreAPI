@@ -1,8 +1,10 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { ApiKey, AuditLog } = require('../database/init');
-const { generateInstallCommand } = require('../utils/helpers');
+const dbPath = path.join(__dirname, '..', 'database', 'init');
+const { ApiKey, AuditLog } = require(dbPath);
+const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
+const { generateInstallCommand } = require(helperPath);
 
 const router = express.Router();
 

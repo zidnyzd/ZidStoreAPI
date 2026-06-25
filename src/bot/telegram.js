@@ -1,6 +1,9 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { ApiKey, VpnAccount, AuditLog } = require('./database/init');
-const { generateApiKey, validateIp, validateDays, formatDate, generateInstallCommand, isAdmin } = require('./utils/helpers');
+const path = require('path');
+const dbPath = path.join(__dirname, '..', 'database', 'init');
+const { ApiKey, VpnAccount, AuditLog } = require(dbPath);
+const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
+const { generateApiKey, validateIp, validateDays, formatDate, generateInstallCommand, isAdmin } = require(helperPath);
 
 class TelegramBotHandler {
     constructor() {

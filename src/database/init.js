@@ -86,7 +86,7 @@ const ApiKey = {
     },
 
     deactivateExpired() {
-        const stmt = db.prepare('UPDATE api_keys SET is_active = 0 WHERE expires_at < datetime("now")');
+        const stmt = db.prepare("UPDATE api_keys SET is_active = 0 WHERE expires_at < datetime('now')");
         return stmt.run();
     },
 
@@ -118,7 +118,7 @@ const VpnAccount = {
     },
 
     deactivateExpired() {
-        const stmt = db.prepare('UPDATE vpn_accounts SET is_active = 0 WHERE expires_at < datetime("now")');
+        const stmt = db.prepare("UPDATE vpn_accounts SET is_active = 0 WHERE expires_at < datetime('now')");
         return stmt.run();
     },
 

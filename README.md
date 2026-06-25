@@ -14,6 +14,13 @@ VPN Tunnel Server Management API with Telegram Bot Integration
 
 ## Quick Start
 
+### Option 1: One-Click Deploy (Recommended)
+```bash
+wget -qO- https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh | bash
+```
+This will auto-install everything: Node.js, PM2, Nginx, SSL, and configure the bot.
+
+### Option 2: Manual Install
 1. **Install dependencies:**
 ```bash
 npm install
@@ -40,6 +47,90 @@ npm start
 
 # With PM2
 npm run pm2:start
+```
+
+## Deployment
+
+### Prerequisites
+- VPS with Ubuntu 20.04+ or Debian 11+ (including Debian 13)
+- Domain pointing to VPS IP (e.g., `zds.web.id`)
+- Telegram Bot Token from [@BotFather](https://t.me/BotFather)
+- Your Telegram User ID (check via [@userinfobot](https://t.me/userinfobot))
+
+### One-Command Deploy
+```bash
+wget -qO- https://raw.githubusercontent.com/zidnyzd/ZidStoreAPI/main/deploy.sh | bash
+```
+
+The script will ask for:
+1. **Domain** - Your server domain (e.g., `zds.web.id`)
+2. **Email** - For Let's Encrypt SSL certificate
+3. **Telegram Bot Token** - From @BotFather
+4. **Telegram Admin ID** - Your user ID for admin access
+
+### What Gets Installed
+- ✅ Node.js 20 LTS
+- ✅ PM2 (process manager)
+- ✅ Nginx (reverse proxy)
+- ✅ Let's Encrypt SSL (auto-renew daily)
+- ✅ ZidStore API + Telegram Bot
+- ✅ Auto-start on boot
+
+### Manual Deploy
+
+1. **Clone & Install:**
+```bash
+git clone https://github.com/zidnyzd/ZidStoreAPI.git /www/ZidStoreAPI
+cd /www/ZidStoreAPI
+npm install --production
+```
+
+2. **Configure:**
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
+
+3. **Download installation script:**
+```bash
+mkdir -p resources
+wget -O resources/zidstoretunnel https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel
+```
+
+4. **Start with PM2:**
+```bash
+pm2 start src/index.js --name zidstore-api
+pm2 save
+pm2 startup
+```
+
+5. **Setup Nginx (optional):**
+```bash
+# See deploy.sh for full Nginx + SSL setup
+```
+
+### Nginx Config Example
+```nginx
+server {
+    listen 80;
+    server_name zds.web.id;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name zds.web.id;
+
+    ssl_certificate /etc/letsencrypt/live/zds.web.id/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/zds.web.id/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
 ## API Endpoints

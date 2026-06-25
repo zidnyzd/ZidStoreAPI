@@ -192,7 +192,7 @@ else
     echo -e "${GREEN}Certbot already installed${NC}"
 fi
 
-# Create Nginx config
+# Create Nginx config (HTTP only first, for certbot validation)
 echo -e "${BLUE}Creating Nginx configuration...${NC}"
 cat > /etc/nginx/sites-available/zidstore-api <<EOF
 server {
@@ -205,18 +205,80 @@ server {
         root /var/www/certbot;
     }
 
-    # Redirect all other HTTP traffic to HTTPS
+    location / {
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+EOF
+
+# Enable site
+ln -sf /etc/nginx/sites-available/zidstore-api /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# Create certbot directory
+mkdir -p /var/www/certbot
+
+# Test Nginx config
+nginx -t
+
+# Start Nginx
+systemctl start nginx
+systemctl enable nginx
+
+# Get SSL certificate (skip if already exists)
+if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+    echo -e "${GREEN}SSL certificate already exists for ${DOMAIN}${NC}"
+else
+    echo -e "${BLUE}Requesting SSL certificate from Let's Encrypt...${NC}"
+    
+    # Use standalone mode (stop nginx temporarily)
+    systemctl stop nginx 2>/dev/null || true
+    certbot certonly --standalone -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive || {
+        echo -e "${RED}SSL certificate request failed. Domain may not be pointing to this server.${NC}"
+        echo -e "${YELLOW}Please ensure DNS A record for ${DOMAIN} points to this VPS IP${NC}"
+        echo -e "${YELLOW}You can try again later with: certbot certonly --standalone -d ${DOMAIN}${NC}"
+        echo -e "${YELLOW}Continuing with HTTP-only setup...${NC}"
+    }
+    systemctl start nginx 2>/dev/null || true
+fi
+
+# Update Nginx config with HTTPS if SSL cert exists
+if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+    echo -e "${BLUE}Updating Nginx config with HTTPS...${NC}"
+    cat > /etc/nginx/sites-available/zidstore-api <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # For Let's Encrypt renewal
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Redirect HTTP to HTTPS
     location / {
         return 301 https://\$host\$request_uri;
     }
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name ${DOMAIN};
 
-    # SSL certificates (will be replaced by certbot)
+    # SSL certificates
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
 
@@ -256,35 +318,6 @@ server {
     }
 }
 EOF
-
-# Enable site
-ln -sf /etc/nginx/sites-available/zidstore-api /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-
-# Create certbot directory
-mkdir -p /var/www/certbot
-
-# Test Nginx config
-nginx -t
-
-# Start Nginx
-systemctl start nginx
-systemctl enable nginx
-
-# Get SSL certificate (skip if already exists)
-if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
-    echo -e "${GREEN}SSL certificate already exists for ${DOMAIN}${NC}"
-else
-    echo -e "${BLUE}Requesting SSL certificate from Let's Encrypt...${NC}"
-    certbot certonly --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --standalone || {
-        echo -e "${YELLOW}Certbot failed. Trying standalone mode...${NC}"
-        systemctl stop nginx
-        certbot certonly --standalone -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive || {
-            echo -e "${RED}SSL certificate request failed. Domain may not be pointing to this server.${NC}"
-            echo -e "${YELLOW}You can try again later with: certbot --nginx -d ${DOMAIN}${NC}"
-        }
-        systemctl start nginx
-    }
 fi
 
 # Setup auto-renewal (only if not already set)

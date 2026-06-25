@@ -157,4 +157,26 @@ router.get('/api/stats', (req, res) => {
     });
 });
 
+// GET /resources/src.zip - Serve src.zip
+router.get('/resources/src.zip', (req, res) => {
+    const srcPath = path.join(__dirname, '../../resources', 'src.zip');
+    if (!fs.existsSync(srcPath)) {
+        return res.status(404).send('Error: src.zip not found');
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="src.zip"');
+    res.sendFile(srcPath);
+});
+
+// GET /resources/bot.zip - Serve bot.zip
+router.get('/resources/bot.zip', (req, res) => {
+    const botPath = path.join(__dirname, '../../resources', 'bot.zip');
+    if (!fs.existsSync(botPath)) {
+        return res.status(404).send('Error: bot.zip not found');
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="bot.zip"');
+    res.sendFile(botPath);
+});
+
 module.exports = router;

@@ -157,37 +157,36 @@ router.get('/api/stats', (req, res) => {
     });
 });
 
-// GET /resources/src.zip - Serve src.zip (legacy path)
-router.get('/resources/src.zip', (req, res) => {
-    const srcPath = path.join(__dirname, '../../resources', 'src.zip');
-    if (!fs.existsSync(srcPath)) {
-        return res.status(404).send('Error: src.zip not found');
+// GET /resources/* - Serve any resource file (fallback for GitHub)
+router.get('/resources/*', (req, res) => {
+    const filePath = req.params[0];
+    const fullPath = path.join(__dirname, '../../resources', filePath);
+    
+    // Security: prevent path traversal
+    if (!fullPath.startsWith(path.join(__dirname, '../../resources'))) {
+        return res.status(403).send('Error: Access denied');
     }
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="src.zip"');
-    res.sendFile(srcPath);
-});
-
-// GET /resources/src-bin/src.zip - Serve src.zip for installer
-router.get('/resources/src-bin/src.zip', (req, res) => {
-    const srcPath = path.join(__dirname, '../../resources', 'src-bin', 'src.zip');
-    if (!fs.existsSync(srcPath)) {
-        return res.status(404).send('Error: src-bin/src.zip not found');
+    
+    if (!fs.existsSync(fullPath)) {
+        return res.status(404).send(`Error: /resources/${filePath} not found`);
     }
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="src.zip"');
-    res.sendFile(srcPath);
-});
-
-// GET /resources/bot/bot.zip - Serve bot.zip
-router.get('/resources/bot/bot.zip', (req, res) => {
-    const botPath = path.join(__dirname, '../../resources', 'bot', 'bot.zip');
-    if (!fs.existsSync(botPath)) {
-        return res.status(404).send('Error: bot/bot.zip not found');
-    }
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="bot.zip"');
-    res.sendFile(botPath);
+    
+    // Set content type based on extension
+    const ext = path.extname(fullPath).toLowerCase();
+    const contentTypes = {
+        '.zip': 'application/zip',
+        '.json': 'application/json',
+        '.sh': 'text/x-sh',
+        '.py': 'text/x-python',
+        '.cfg': 'text/plain',
+        '.conf': 'text/plain',
+        '.js': 'text/javascript',
+        '.log': 'text/plain',
+    };
+    
+    res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(fullPath)}"`);
+    res.sendFile(fullPath);
 });
 
 module.exports = router;

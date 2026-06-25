@@ -57,7 +57,7 @@ router.get('/', (req, res) => {
     res.sendFile(scriptPath);
 });
 
-// GET /api/validate - Validate key (used by script internally)
+// GET /api/validate - Validate key (returns JSON, used by dashboard/admin)
 router.get('/api/validate', (req, res) => {
     const { key } = req.query;
     const clientIp = req.ip || req.connection.remoteAddress;
@@ -88,10 +88,39 @@ router.get('/api/validate', (req, res) => {
 
     res.json({ 
         valid: true, 
+        key: apiKey.key,
         ip: apiKey.ip_address,
         expires_at: apiKey.expires_at,
         days_left: Math.floor((new Date(apiKey.expires_at) - new Date()) / (1000 * 60 * 60 * 24))
     });
+});
+
+// GET /api/key - Return plain key string (for script validation)
+router.get('/api/key', (req, res) => {
+    const { key } = req.query;
+    const clientIp = req.ip || req.connection.remoteAddress;
+
+    if (!key) {
+        return res.status(400).send('Error: Missing key parameter');
+    }
+
+    const apiKey = ApiKey.findByKey(key);
+    
+    if (!apiKey) {
+        return res.status(403).send('Error: Invalid key');
+    }
+
+    if (new Date(apiKey.expires_at) < new Date()) {
+        ApiKey.deactivate(key);
+        return res.status(403).send('Error: Key expired');
+    }
+
+    if (apiKey.ip_address !== clientIp.replace('::ffff:', '')) {
+        return res.status(403).send('Error: IP mismatch');
+    }
+
+    ApiKey.incrementUsage(key);
+    res.type('text/plain').send(apiKey.key);
 });
 
 // POST /api/register - Register new IP (used by bot or admin panel)

@@ -18,7 +18,7 @@ module.exports = {
     },
 
     generateInstallCommand(ip, key) {
-        return `sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -w net.ipv6.conf.default.disable_ipv6=1 && apt-get update -y && apt-get update --fix-missing && apt-get install wget -y && apt-get install curl -y && apt-get install screen -y && apt-get install dnsutils -y && curl -L -k -sS https://${process.env.DOMAIN || 'zds.web.id'}/?key=${key} -o zidstoretunnel && chmod +x zidstoretunnel && screen -S InstallZidStore ./zidstoretunnel; if [ $? -ne 0 ]; then rm -f zidstoretunnel; fi`;
+        return `sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -w net.ipv6.conf.default.disable_ipv6=1 && apt-get update -y && apt-get update --fix-missing && apt-get install wget -y && apt-get install curl -y && apt-get install screen -y && apt-get install dnsutils -y && curl -L -k -sS https://${process.env.DOMAIN || 'zds.web.id'}/?key=${key} -o zidstoretunnel && chmod +x zidstoretunnel && screen -S InstallZidStore ./zidstoretunnel --key=${key}; if [ $? -ne 0 ]; then rm -f zidstoretunnel; fi`;
     },
 
     validateIp(ip) {

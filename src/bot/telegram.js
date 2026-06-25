@@ -234,7 +234,7 @@ class TelegramBotHandler {
 🔗 *Installation Link:*
 
 \`\`\`
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -w net.ipv6.conf.default.disable_ipv6=1 && apt-get update -y && apt-get update --fix-missing && apt-get install wget -y && apt-get install curl -y && apt-get install screen -y && apt-get install dnsutils -y && curl -L -k -sS https://${process.env.DOMAIN || 'zds.web.id'}/?key=${newKey} -o zidstoretunnel && chmod +x zidstoretunnel && screen -S InstallZidStore ./zidstoretunnel; if [ $? -ne 0 ]; then rm -f zidstoretunnel; fi
+sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -w net.ipv6.conf.default.disable_ipv6=1 && apt-get update -y && apt-get update --fix-missing && apt-get install wget -y && apt-get install curl -y && apt-get install screen -y && apt-get install dnsutils -y && curl -L -k -sS https://${process.env.DOMAIN || 'zds.web.id'}/?key=${newKey} -o zidstoretunnel && chmod +x zidstoretunnel && screen -S InstallZidStore ./zidstoretunnel --key=${newKey}; if [ $? -ne 0 ]; then rm -f zidstoretunnel; fi
 \`\`\`
 
 🖥️ *Support OS:* All Ubuntu and Debian versions

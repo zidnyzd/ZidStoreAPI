@@ -10,14 +10,14 @@ const router = express.Router();
 
 // GET /?key=XXXXX - Download script with key validation
 router.get('/', (req, res) => {
-    const { key, ip } = req.query;
-    const clientIp = ip || req.ip || req.connection.remoteAddress;
+    const { key } = req.query;
+    const clientIp = req.ip || req.connection.remoteAddress;
 
     if (!key) {
         return res.status(400).send('Error: Missing key parameter. Usage: /?key=YOUR_KEY');
     }
 
-    // Validate key
+    // Validate key exists and is active
     const apiKey = ApiKey.findByKey(key);
     
     if (!apiKey) {
@@ -32,17 +32,11 @@ router.get('/', (req, res) => {
         return res.status(403).send('Error: Key has expired. Please register a new key.');
     }
 
-    // Check IP match
-    if (apiKey.ip_address !== clientIp.replace('::ffff:', '')) {
-        AuditLog.log('IP_MISMATCH', `Key: ${key}, Expected: ${apiKey.ip_address}, Got: ${clientIp}`, clientIp);
-        return res.status(403).send('Error: IP address does not match registered IP.');
-    }
-
     // Increment usage counter
     ApiKey.incrementUsage(key);
 
     // Log successful access
-    AuditLog.log('SCRIPT_DOWNLOAD', `Key: ${key}, IP: ${apiKey.ip_address}`, clientIp);
+    AuditLog.log('SCRIPT_DOWNLOAD', `Key: ${key}, Registered IP: ${apiKey.ip_address}`, clientIp);
 
     // Serve the script file
     const scriptPath = path.join(__dirname, '../../resources', 'zidstoretunnel');
@@ -60,7 +54,6 @@ router.get('/', (req, res) => {
 // GET /api/validate - Validate key (returns JSON, used by dashboard/admin)
 router.get('/api/validate', (req, res) => {
     const { key } = req.query;
-    const clientIp = req.ip || req.connection.remoteAddress;
 
     if (!key) {
         return res.json({ valid: false, message: 'Missing key parameter' });
@@ -77,15 +70,6 @@ router.get('/api/validate', (req, res) => {
         return res.json({ valid: false, message: 'Key expired', expired_at: apiKey.expires_at });
     }
 
-    if (apiKey.ip_address !== clientIp.replace('::ffff:', '')) {
-        return res.json({ 
-            valid: false, 
-            message: 'IP mismatch',
-            expected_ip: apiKey.ip_address,
-            actual_ip: clientIp 
-        });
-    }
-
     res.json({ 
         valid: true, 
         key: apiKey.key,
@@ -98,7 +82,6 @@ router.get('/api/validate', (req, res) => {
 // GET /api/key - Return plain key string (for script validation)
 router.get('/api/key', (req, res) => {
     const { key } = req.query;
-    const clientIp = req.ip || req.connection.remoteAddress;
 
     if (!key) {
         return res.status(400).send('Error: Missing key parameter');
@@ -113,10 +96,6 @@ router.get('/api/key', (req, res) => {
     if (new Date(apiKey.expires_at) < new Date()) {
         ApiKey.deactivate(key);
         return res.status(403).send('Error: Key expired');
-    }
-
-    if (apiKey.ip_address !== clientIp.replace('::ffff:', '')) {
-        return res.status(403).send('Error: IP mismatch');
     }
 
     ApiKey.incrementUsage(key);

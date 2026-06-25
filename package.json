@@ -1,0 +1,26 @@
+{
+  "name": "zidstore-api",
+  "version": "1.0.0",
+  "description": "ZidStore API - VPN Tunnel Server Management with Telegram Bot",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "db:init": "node src/database/init.js",
+    "db:reset": "node src/database/reset.js"
+  },
+  "keywords": ["vpn", "tunnel", "telegram", "bot", "api"],
+  "author": "ZidStore",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.3.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

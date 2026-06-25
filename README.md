@@ -1,0 +1,174 @@
+# ZidStore API
+
+VPN Tunnel Server Management API with Telegram Bot Integration
+
+## Features
+
+- 🔑 Generate unique API keys per IP address
+- 📱 Telegram Bot for IP registration
+- 🛡️ Key validation with IP matching
+- 📊 Usage tracking and statistics
+- ⏰ Automatic key expiration
+- 🔒 Secure script delivery
+- 📝 Complete audit logging
+
+## Quick Start
+
+1. **Install dependencies:**
+```bash
+npm install
+```
+
+2. **Configure environment:**
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
+
+3. **Initialize database:**
+```bash
+npm run db:init
+```
+
+4. **Start server:**
+```bash
+# Development
+npm run dev
+
+# Production
+npm start
+
+# With PM2
+npm run pm2:start
+```
+
+## API Endpoints
+
+### Download Script
+```
+GET /?key=YOUR_API_KEY
+```
+Returns the installation script if key is valid and IP matches.
+
+### Validate Key
+```
+GET /api/validate?key=YOUR_API_KEY
+```
+Returns:
+```json
+{
+  "valid": true,
+  "ip": "103.253.244.181",
+  "expires_at": "2026-07-05T00:00:00.000Z",
+  "days_left": 10
+}
+```
+
+### Register New IP (used by bot)
+```
+POST /api/register
+Body: { "ip": "103.253.244.181", "days": 30 }
+```
+
+### Get Statistics
+```
+GET /api/stats
+```
+
+## Telegram Bot Commands
+
+| Command | Description | Access |
+|---------|-------------|--------|
+| `/start` | Welcome message | All |
+| `/register` | Register new IP | All |
+| `/key` | Check key status | All |
+| `/help` | Help message | All |
+| `/list` | List all IPs | Admin |
+| `/revoke <ip>` | Revoke IP key | Admin |
+| `/stats` | System statistics | Admin |
+
+## Project Structure
+
+```
+ZidStoreAPI/
+├── src/
+│   ├── index.js          # Main server entry
+│   ├── database/
+│   │   └── init.js       # Database setup & models
+│   ├── routes/
+│   │   └── api.js        # API routes
+│   ├── bot/
+│   │   └── telegram.js   # Telegram bot handler
+│   └── utils/
+│       └── helpers.js    # Utility functions
+├── resources/
+│   └── zidstoretunnel    # Installation script
+├── data/
+│   └── zidstore.db       # SQLite database (auto-created)
+├── .env                  # Environment variables
+├── .env.example          # Example environment
+├── package.json
+└── README.md
+```
+
+## Deployment
+
+### Using PM2
+
+```bash
+# Install PM2 globally
+npm install -g pm2
+
+# Start with PM2
+npm run pm2:start
+
+# View logs
+npm run pm2:logs
+
+# Restart after update
+npm run pm2:restart
+```
+
+### Nginx Reverse Proxy
+
+```nginx
+server {
+    listen 80;
+    server_name zds.web.id;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+### SSL with Let's Encrypt
+
+```bash
+sudo certbot --nginx -d zds.web.id
+```
+
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `PORT` | Server port (default: 3000) | No |
+| `NODE_ENV` | Environment (development/production) | No |
+| `DOMAIN` | Server domain | Yes |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | Yes |
+| `TELEGRAM_ADMIN_ID` | Admin Telegram user ID(s) | Yes |
+| `DB_PATH` | SQLite database path | No |
+| `KEY_LENGTH` | API key length (default: 20) | No |
+| `KEY_PREFIX` | API key prefix (default: zs) | No |
+
+## License
+
+MIT © ZidStore

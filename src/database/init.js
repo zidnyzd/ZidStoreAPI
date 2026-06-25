@@ -85,6 +85,11 @@ const ApiKey = {
         return stmt.run(key);
     },
 
+    deactivateByIp(ip) {
+        const stmt = db.prepare('UPDATE api_keys SET is_active = 0 WHERE ip_address = ?');
+        return stmt.run(ip);
+    },
+
     deactivateExpired() {
         const stmt = db.prepare("UPDATE api_keys SET is_active = 0 WHERE expires_at < datetime('now')");
         return stmt.run();

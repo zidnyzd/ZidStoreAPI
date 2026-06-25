@@ -136,7 +136,7 @@ class TelegramBotHandler {
                 return this.bot.sendMessage(msg.chat.id, '❌ *Invalid IP address format.*', { parse_mode: 'Markdown' });
             }
 
-            const result = ApiKey.deactivate(ip);
+            const result = ApiKey.deactivateByIp(ip);
             
             if (result.changes > 0) {
                 AuditLog.log('KEY_REVOKED', `IP: ${ip}, By: ${msg.from.id}`);

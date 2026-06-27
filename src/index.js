@@ -46,7 +46,9 @@ app.use('/api', apiLimiter);
 
 // Log requests
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} ${req.method} ${req.url} - ${req.ip}`);
+    const now = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const ts = now.toISOString().replace('T', ' ').substring(0, 19) + ' WIB';
+    console.log(`${ts} ${req.method} ${req.url} - ${req.ip}`);
     next();
 });
 

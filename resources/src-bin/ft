@@ -108,7 +108,6 @@ if [ $status_code -eq 200 ]; then
             echo -e "      \e[38;5;196m• \e[0mCITY      : $(cat /etc/xray/city 2>/dev/null || echo "Unable to detect city")"
             echo -e "      \e[38;5;196m• \e[0mIP        : $(wget -qO- ipv4.icanhazip.com 2>/dev/null || echo "Unable to detect IP")"
             echo -e "      \e[38;5;196m• \e[0mDOMAIN    : $(cat /etc/xray/domain 2>/dev/null || echo "No domain registered")"
-            echo -e "      \e[38;5;196m• \e[0mNS        : $(cat /etc/xray/dns 2>/dev/null || echo "No NS registered")"
             print_rainbow "       ┌───────────────────────────────┐"
             echo -e "          SSH/OVPN    : $ssh ACCOUNT"
             echo -e "          VMESS       : $vm ACCOUNT"

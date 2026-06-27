@@ -55,8 +55,7 @@ print_rainbow() {
 # Variables
 ip=$(wget -qO- ipv4.icanhazip.com)
 city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
-pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Pubkey not available")
-ns_domain=$(cat /etc/xray/dns 2>/dev/null || echo "NS domain not set")
+
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 
 # Loading animation
@@ -159,8 +158,6 @@ Password         : $passwd
 ---------------------
 IP               : $ip
 Host             : $domain
-Slowdns Host     : ${ns_domain}
-Public Key       : ${pubkey}
 Location         : $city
 OpenSSH Port     : 443, 80, 22
 UdpSSH Port      : 1-65535
@@ -191,7 +188,6 @@ echo -e "Password         : $passwd"
 print_rainbow "───────────────────────────"
 echo -e "IP               : $ip"
 echo -e "Host             : $domain"
-echo -e "Slowdns Host     : ${ns_domain}"
 echo -e "Location         : $city"
 echo -e "OpenSSH Port     : 443, 80, 22"
 echo -e "UdpSSH Port      : 1-65535"
@@ -204,7 +200,6 @@ echo -e "OVPN SSL Port    : 443"
 echo -e "OVPN TCP Port    : 1194"
 echo -e "OVPN UDP Port    : 2200"
 echo -e "BadVPN UDP       : 7100, 7300, 7300"
-echo -e "SlowDns Public Key: ${pubkey}"
 print_rainbow "───────────────────────────"
 echo -e "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
 print_rainbow "───────────────────────────"

@@ -59,8 +59,7 @@ srv_date=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | se
 date=$(date +"%Y-%m-%d" -d "$srv_date")
 ip_url="https://ipinfo.io/ip"
 city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
-pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Pubkey not available")
-ns_domain=$(cat /etc/xray/dns 2>/dev/null || echo "NS domain not set")
+
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 uuid=$(cat /proc/sys/kernel/random/uuid)
 
@@ -176,7 +175,6 @@ print_rainbow "    Xray/Vless Account     "
 print_rainbow "───────────────────────────"
 echo -e "Description : ${user}"
 echo -e "Host Server : ${domain}"
-echo -e "Host XrayDNS: ${ns_domain}"
 echo -e "Location    : $city"
 echo -e "TLS Port    : 443"
 echo -e "Non-TLS Port: 80, 8080"
@@ -187,7 +185,6 @@ echo -e "Network     : WS or gRPC"
 echo -e "Path        : /whatever/vless "
 echo -e "ServiceName : vless-grpc"
 echo -e "User ID     : ${uuid}"
-echo -e "Public Key  : ${pubkey}"
 print_rainbow "───────────────────────────"
 echo -e "TLS Link   : ${vless_tls}"
 print_rainbow "───────────────────────────"

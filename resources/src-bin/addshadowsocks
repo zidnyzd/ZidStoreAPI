@@ -58,8 +58,7 @@ srv_date=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | se
 date=$(date +"%Y-%m-%d" -d "$srv_date")
 ip_url="https://ipinfo.io/ip"
 city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
-pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Pubkey not available")
-ns_domain=$(cat /etc/xray/dns 2>/dev/null || echo "NS domain not set")
+
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 uuid=$(cat /proc/sys/kernel/random/uuid)
 password=$(openssl rand -base64 16)
@@ -435,14 +434,12 @@ print_rainbow "  Xray/Shadowsocks Account "
 print_rainbow "───────────────────────────"
 echo -e "Description  : ${user}"
 echo -e "Server Host  : ${domain}"
-echo -e "XrayDNS Host : ${ns_domain}"
 echo -e "Location     : ${city}"
 echo -e "Port         : 443"
 echo -e "Method       : ${method}"
 echo -e "Password     : ${password}"
 echo -e "WS Path      : /whatever/ss-ws"
 echo -e "ServiceName  : ss-grpc"
-echo -e "Public Key   : ${pubkey}"
 print_rainbow "───────────────────────────"
 echo -e "SS WS Link   : ${ss_link_ws}"
 print_rainbow "───────────────────────────"

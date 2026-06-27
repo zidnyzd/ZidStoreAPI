@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 const { ApiKey, AuditLog } = require('./database/init');
 
 // Initialize routes
@@ -16,10 +17,32 @@ let botInstance = null;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust nginx reverse proxy so req.ip reflects real client IP
+app.set('trust proxy', 1);
+
+// Rate limiters
+const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' },
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many API requests, please try again later.' },
+});
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(generalLimiter);
+app.use('/api', apiLimiter);
 
 // Log requests
 app.use((req, res, next) => {

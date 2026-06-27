@@ -74,13 +74,14 @@ router.get('/api/validate', (req, res) => {
 // GET /api/key - Return plain key string (for script validation)
 router.get('/api/key', (req, res) => {
     const { key } = req.query;
+    const clientIp = req.ip || req.connection.remoteAddress;
 
     if (!key) {
         return res.status(400).send('Error: Missing key parameter');
     }
 
     const apiKey = ApiKey.findByKey(key);
-    
+
     if (!apiKey) {
         return res.status(403).send('Error: Invalid key');
     }
@@ -88,6 +89,11 @@ router.get('/api/key', (req, res) => {
     if (new Date(apiKey.expires_at) < new Date()) {
         ApiKey.deactivate(key);
         return res.status(403).send('Error: Key expired');
+    }
+
+    if (apiKey.ip_address && apiKey.ip_address !== clientIp) {
+        AuditLog.log('IP_MISMATCH', `Key: ${key}, Expected: ${apiKey.ip_address}, Got: ${clientIp}`, clientIp);
+        return res.status(403).send('Error: IP not authorized for this key');
     }
 
     ApiKey.incrementUsage(key);

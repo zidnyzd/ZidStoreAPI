@@ -554,7 +554,7 @@ setup_bot_telegram() {
             7) restart_services ;;
             8) change_domain ;;
             9) change_ns ;;
-            10) nano /etc/zidstore/banner; clear ;;
+            10) nano /etc/zidstoretunnel.txt; clear ;;
             11) gotop ;;
             12) setting_reboot_jam_reboot  ;;
             13) reboot ;;

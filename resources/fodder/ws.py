@@ -1,4 +1,4 @@
-import socket, threading, select, signal, sys, time, getopt, os, uuid, subprocess, re
+import socket, threading, select, signal, sys, time, getopt, os, re
 
 # Listen
 LISTENING_ADDR = '0.0.0.0'
@@ -11,8 +11,8 @@ PASS = ''
 
 # CONST
 BUFLEN = 4096 * 4
-TIMEOUT = 60
-KEEPALIVE_INTERVAL = 15
+IDLE_TIMEOUT = 300
+CLEANUP_INTERVAL = 120
 DEFAULT_HOSTS = ['127.0.0.1:109', '127.0.0.1:2223', '127.0.0.1:2222', '127.0.0.1:1194']
 RESPONSE = 'HTTP/1.1 101 Switching Protocol\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: foo\r\n\r\n'
 
@@ -37,57 +37,22 @@ class Server(threading.Thread):
             self.socs.append(soc)
         self.running = True
 
-        # Cleanup thread: remove stale PID mapping files (port files survive)
-        def cleanup_loop():
+        # Cleanup stale mapping files
+        def cleanup():
             while self.running:
-                time.sleep(120)
+                time.sleep(CLEANUP_INTERVAL)
                 try:
-                    for entry in os.listdir('/tmp/ws-ips/'):
-                        if entry.startswith('pid_'):
-                            _pid = entry[4:]
-                            if not os.path.isdir('/proc/' + _pid):
-                                try:
-                                    os.remove('/tmp/ws-ips/' + entry)
-                                except:
-                                    pass
+                    _cutoff = time.time() - IDLE_TIMEOUT
+                    for _e in os.listdir('/tmp/ws-ips/'):
+                        _p = '/tmp/ws-ips/' + _e
+                        try:
+                            if os.stat(_p).st_mtime < _cutoff:
+                                os.remove(_p)
+                        except:
+                            pass
                 except:
                     pass
-        threading.Thread(target=cleanup_loop, daemon=True).start()
-
-        # Startup: rebuild PID mapping from existing port mapping files
-        try:
-            for entry in os.listdir('/tmp/ws-ips/'):
-                if entry.startswith('pid_') and os.path.isdir('/proc/' + entry[4:]):
-                    continue
-                if not entry.isdigit():
-                    continue
-                _port = entry
-                try:
-                    _hex_port = format(int(_port), '04x')
-                    with open('/proc/net/tcp') as _pt:
-                        for _tl in _pt:
-                            _c = _tl.strip().split()
-                            if len(_c) >= 10 and _hex_port in _c[1]:
-                                _ino = _c[9]
-                                for _pe in os.listdir('/proc/'):
-                                    if not _pe.isdigit():
-                                        continue
-                                    try:
-                                        for _fe in os.listdir('/proc/' + _pe + '/fd'):
-                                            _lk = os.readlink('/proc/' + _pe + '/fd/' + _fe)
-                                            if _lk and _lk.endswith(_ino + ']'):
-                                                import shutil
-                                                shutil.copy('/tmp/ws-ips/' + _port, '/tmp/ws-ips/pid_' + _pe)
-                                                raise StopIteration
-                                    except (OSError, StopIteration):
-                                        continue
-                                break
-                except StopIteration:
-                    continue
-                except:
-                    continue
-        except:
-            pass
+        threading.Thread(target=cleanup, daemon=True).start()
 
         try:
             while self.running:
@@ -149,7 +114,6 @@ class ConnectionHandler(threading.Thread):
         self.server = server
         self.log = 'Connection: ' + str(addr)
         self.real_ip = addr[0]
-        self.mapping_written = False
         self.is_ssh = False
 
     def close(self):
@@ -267,37 +231,12 @@ class ConnectionHandler(threading.Thread):
         self.log += ' - CONNECT ' + path
 
         self.connect_target(path)
-        # Write real IP mapping (port + PID based)
+        # Write real IP mapping (port-based — key = ws.py local port)
         try:
             local_port = str(self.target.getsockname()[1])
             os.makedirs('/tmp/ws-ips', exist_ok=True)
-            # Port-based mapping (for active connections lookup)
             with open('/tmp/ws-ips/' + local_port, 'w') as f:
                 f.write(self.real_ip + '\n')
-            # PID-based mapping via inode matching (survives ws restart)
-            try:
-                _hex_port = format(self.target.getsockname()[1], '04x')
-                with open('/proc/net/tcp') as _pt:
-                    for _tl in _pt:
-                        _c = _tl.strip().split()
-                        if len(_c) >= 10 and _hex_port in _c[1]:
-                            _ino = _c[9]
-                            for _pe in os.listdir('/proc/'):
-                                if not _pe.isdigit(): continue
-                                try:
-                                    for _fe in os.listdir('/proc/' + _pe + '/fd'):
-                                        _lk = os.readlink('/proc/' + _pe + '/fd/' + _fe)
-                                        if _lk and 'socket:[' + _ino + ']' == _lk:
-                                            with open('/tmp/ws-ips/pid_' + _pe, 'w') as _pw:
-                                                _pw.write(self.real_ip + '\n')
-                                            raise StopIteration
-                                except (OSError, StopIteration):
-                                    continue
-                            break
-            except StopIteration:
-                pass
-            except Exception:
-                pass
         except:
             pass
         if not self.is_ssh:
@@ -321,12 +260,13 @@ class ConnectionHandler(threading.Thread):
 
     def doCONNECT(self):
         socs = [self.client, self.target]
-        error = False
+        idle = 0
         while True:
-            recv, _, err = select.select(socs, [], socs, KEEPALIVE_INTERVAL)
+            recv, _, err = select.select(socs, [], socs, 3)
             if err:
-                error = True
+                break
             if recv:
+                idle = 0
                 for in_ in recv:
                     try:
                         data = in_.recv(BUFLEN)
@@ -335,23 +275,27 @@ class ConnectionHandler(threading.Thread):
                                 try:
                                     self.client.send(data)
                                 except (BrokenPipeError, OSError, socket.error):
-                                    error = True
-                                    break
+                                    self.close()
+                                    return
                             else:
                                 try:
                                     while data:
                                         byte = self.target.send(data)
                                         data = data[byte:]
                                 except (BrokenPipeError, OSError, socket.error):
-                                    error = True
-                                    break
+                                    self.close()
+                                    return
                         else:
-                            break
+                            self.close()
+                            return
                     except:
-                        error = True
-                        break
-            if error:
-                break
+                        self.close()
+                        return
+            else:
+                idle += 3
+                if idle >= IDLE_TIMEOUT:
+                    self.close()
+                    return
 
 
 def print_usage():

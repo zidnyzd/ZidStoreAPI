@@ -47,11 +47,10 @@ if [ $status_code -eq 200 ]; then
 
             dropbear_pids=($(pgrep dropbear))
 
-            # Helper: resolve real IP via ws.py mapping (PID first, fallback port)
+            # Helper: resolve real IP via ws.py port mapping
             resolve_real_ip() {
                 local pid=$1 current_ip=$2
                 [[ "$current_ip" != "127.0.0.1" ]] && { echo "$current_ip"; return; }
-                cat "/tmp/ws-ips/pid_$pid" 2>/dev/null && return
                 local peer_port
                 peer_port=$(ss -tnp 2>/dev/null | grep "pid=${pid}," | awk '$4 ~ /:(22|109|2222|2223)$/ {print $5}' | head -1 | rev | cut -d: -f1 | rev)
                 [[ -z "$peer_port" ]] && { echo "$current_ip"; return; }

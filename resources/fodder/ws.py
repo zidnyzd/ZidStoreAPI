@@ -12,6 +12,7 @@ PASS = ''
 # CONST
 BUFLEN = 4096 * 4
 TIMEOUT = 60
+KEEPALIVE_INTERVAL = 15
 DEFAULT_HOSTS = ['127.0.0.1:109', '127.0.0.1:2223', '127.0.0.1:2222', '127.0.0.1:1194']
 RESPONSE = 'HTTP/1.1 101 Switching Protocol\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: foo\r\n\r\n'
 
@@ -36,22 +37,57 @@ class Server(threading.Thread):
             self.socs.append(soc)
         self.running = True
 
-        # Cleanup thread: remove mapping files that are > 10 minutes old
+        # Cleanup thread: remove stale PID mapping files (port files survive)
         def cleanup_loop():
             while self.running:
                 time.sleep(120)
                 try:
-                    _cutoff = time.time() - 600
                     for entry in os.listdir('/tmp/ws-ips/'):
-                        _path = '/tmp/ws-ips/' + entry
-                        try:
-                            if os.stat(_path).st_mtime < _cutoff:
-                                os.remove(_path)
-                        except:
-                            pass
+                        if entry.startswith('pid_'):
+                            _pid = entry[4:]
+                            if not os.path.isdir('/proc/' + _pid):
+                                try:
+                                    os.remove('/tmp/ws-ips/' + entry)
+                                except:
+                                    pass
                 except:
                     pass
         threading.Thread(target=cleanup_loop, daemon=True).start()
+
+        # Startup: rebuild PID mapping from existing port mapping files
+        try:
+            for entry in os.listdir('/tmp/ws-ips/'):
+                if entry.startswith('pid_') and os.path.isdir('/proc/' + entry[4:]):
+                    continue
+                if not entry.isdigit():
+                    continue
+                _port = entry
+                try:
+                    _hex_port = format(int(_port), '04x')
+                    with open('/proc/net/tcp') as _pt:
+                        for _tl in _pt:
+                            _c = _tl.strip().split()
+                            if len(_c) >= 10 and _hex_port in _c[1]:
+                                _ino = _c[9]
+                                for _pe in os.listdir('/proc/'):
+                                    if not _pe.isdigit():
+                                        continue
+                                    try:
+                                        for _fe in os.listdir('/proc/' + _pe + '/fd'):
+                                            _lk = os.readlink('/proc/' + _pe + '/fd/' + _fe)
+                                            if _lk and _lk.endswith(_ino + ']'):
+                                                import shutil
+                                                shutil.copy('/tmp/ws-ips/' + _port, '/tmp/ws-ips/pid_' + _pe)
+                                                raise StopIteration
+                                    except (OSError, StopIteration):
+                                        continue
+                                break
+                except StopIteration:
+                    continue
+                except:
+                    continue
+        except:
+            pass
 
         try:
             while self.running:
@@ -231,12 +267,37 @@ class ConnectionHandler(threading.Thread):
         self.log += ' - CONNECT ' + path
 
         self.connect_target(path)
-        # Write real IP mapping (port-based — key = ws.py local port)
+        # Write real IP mapping (port + PID based)
         try:
             local_port = str(self.target.getsockname()[1])
             os.makedirs('/tmp/ws-ips', exist_ok=True)
+            # Port-based mapping (for active connections lookup)
             with open('/tmp/ws-ips/' + local_port, 'w') as f:
                 f.write(self.real_ip + '\n')
+            # PID-based mapping via inode matching (survives ws restart)
+            try:
+                _hex_port = format(self.target.getsockname()[1], '04x')
+                with open('/proc/net/tcp') as _pt:
+                    for _tl in _pt:
+                        _c = _tl.strip().split()
+                        if len(_c) >= 10 and _hex_port in _c[1]:
+                            _ino = _c[9]
+                            for _pe in os.listdir('/proc/'):
+                                if not _pe.isdigit(): continue
+                                try:
+                                    for _fe in os.listdir('/proc/' + _pe + '/fd'):
+                                        _lk = os.readlink('/proc/' + _pe + '/fd/' + _fe)
+                                        if _lk and 'socket:[' + _ino + ']' == _lk:
+                                            with open('/tmp/ws-ips/pid_' + _pe, 'w') as _pw:
+                                                _pw.write(self.real_ip + '\n')
+                                            raise StopIteration
+                                except (OSError, StopIteration):
+                                    continue
+                            break
+            except StopIteration:
+                pass
+            except Exception:
+                pass
         except:
             pass
         if not self.is_ssh:
@@ -260,11 +321,9 @@ class ConnectionHandler(threading.Thread):
 
     def doCONNECT(self):
         socs = [self.client, self.target]
-        count = 0
         error = False
         while True:
-            count += 1
-            (recv, _, err) = select.select(socs, [], socs, 3)
+            recv, _, err = select.select(socs, [], socs, KEEPALIVE_INTERVAL)
             if err:
                 error = True
             if recv:
@@ -286,15 +345,11 @@ class ConnectionHandler(threading.Thread):
                                 except (BrokenPipeError, OSError, socket.error):
                                     error = True
                                     break
-
-                            count = 0
                         else:
                             break
                     except:
                         error = True
                         break
-            if count == TIMEOUT:
-                error = True
             if error:
                 break
 

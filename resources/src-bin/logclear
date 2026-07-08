@@ -1,6 +1,5 @@
 #!/bin/bash
-# Clear logs but PRESERVE auth.log so SSH session detection still works
-data=($(find /var/log/ -name '*.log' ! -name 'auth.log'))
+data=($(find /var/log/ -name '*.log'))
 for log in "${data[@]}"; do
     echo "$log clear"
     echo >$log
@@ -19,5 +18,3 @@ echo >/var/log/syslog
 echo >/var/log/btmp
 echo >/var/log/messages
 echo >/var/log/debug
-# Note: auth.log is NOT cleared here because it's used for SSH login detection
-# (now replaced by who/utmp detection which is log-independent)

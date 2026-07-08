@@ -1,4 +1,4 @@
-import socket, threading, select, signal, sys, time, getopt
+import socket, threading, select, signal, sys, time, getopt, os, uuid, subprocess, re
 
 # Listen
 LISTENING_ADDR = '0.0.0.0'
@@ -35,6 +35,23 @@ class Server(threading.Thread):
             soc.listen(0)
             self.socs.append(soc)
         self.running = True
+
+        # Cleanup thread: remove mapping files that are > 10 minutes old
+        def cleanup_loop():
+            while self.running:
+                time.sleep(120)
+                try:
+                    _cutoff = time.time() - 600
+                    for entry in os.listdir('/tmp/ws-ips/'):
+                        _path = '/tmp/ws-ips/' + entry
+                        try:
+                            if os.stat(_path).st_mtime < _cutoff:
+                                os.remove(_path)
+                        except:
+                            pass
+                except:
+                    pass
+        threading.Thread(target=cleanup_loop, daemon=True).start()
 
         try:
             while self.running:
@@ -95,8 +112,13 @@ class ConnectionHandler(threading.Thread):
         self.client_buffer = ''
         self.server = server
         self.log = 'Connection: ' + str(addr)
+        self.real_ip = addr[0]
+        self.mapping_written = False
+        self.is_ssh = False
 
     def close(self):
+        # Keep mapping file for SSH detection
+        # (cleanup thread removes stale entries)
         try:
             if not self.clientClosed:
                 self.client.shutdown(socket.SHUT_RDWR)
@@ -119,10 +141,32 @@ class ConnectionHandler(threading.Thread):
         try:
             self.client_buffer = self.client.recv(BUFLEN).decode()
 
+            # HAProxy proxy protocol v1: "PROXY TCP4 X.X.X.X ...\r\n"
+            if self.client_buffer.startswith('PROXY '):
+                proxy_match = __import__('re').match(r'^PROXY (TCP4|TCP6) (\S+)', self.client_buffer)
+                if proxy_match:
+                    self.real_ip = proxy_match.group(2)
+                    # Strip PROXY line from buffer
+                    self.client_buffer = self.client_buffer[self.client_buffer.find('\r\n')+2:]
+
+            # Fallback: X-Forwarded-For or X-Real-IP HTTP header
+            if self.real_ip == '127.0.0.1':
+                xff = self.findHeader(self.client_buffer, 'X-Forwarded-For')
+                if xff:
+                    self.real_ip = xff.split(',')[0].strip()
+                else:
+                    xri = self.findHeader(self.client_buffer, 'X-Real-IP')
+                    if xri:
+                        self.real_ip = xri.split(',')[0].strip()
+
             hostPort = self.findHeader(self.client_buffer, 'X-Real-Host')
 
             if hostPort == '':
-                hostPort = DEFAULT_HOSTS[0]
+                if 'SSH-' in self.client_buffer[:64]:
+                    self.is_ssh = True
+                    hostPort = DEFAULT_HOSTS[2]  # 127.0.0.1:2222
+                else:
+                    hostPort = DEFAULT_HOSTS[0]
 
             split = self.findHeader(self.client_buffer, 'X-Split')
 
@@ -136,7 +180,6 @@ class ConnectionHandler(threading.Thread):
                 try:
                     self.client.send('HTTP/1.1 400 NoXRealHost!\r\n\r\n'.encode())
                 except (BrokenPipeError, OSError, socket.error):
-                    # Client disconnected before we could send error response
                     pass
 
         except Exception as e:
@@ -144,11 +187,10 @@ class ConnectionHandler(threading.Thread):
             self.server.printLog(self.log)
             pass
         finally:
-            if not self.clientClosed:
+            if not self.is_ssh and not self.clientClosed:
                 try:
                     self.client.sendall(RESPONSE.encode())
                 except (BrokenPipeError, OSError, socket.error):
-                    # Client disconnected before we could send response
                     pass
             self.close()
             self.server.removeConn(self)
@@ -189,12 +231,29 @@ class ConnectionHandler(threading.Thread):
         self.log += ' - CONNECT ' + path
 
         self.connect_target(path)
+        # Write real IP mapping (port-based — key = ws.py local port)
         try:
-            self.client.sendall(RESPONSE.encode())
-        except (BrokenPipeError, OSError, socket.error):
-            # Client disconnected before we could send response
-            return
-        self.client_buffer = ''
+            local_port = str(self.target.getsockname()[1])
+            os.makedirs('/tmp/ws-ips', exist_ok=True)
+            with open('/tmp/ws-ips/' + local_port, 'w') as f:
+                f.write(self.real_ip + '\n')
+        except:
+            pass
+        if not self.is_ssh:
+            # HTTP tunnel: send 101 Switching, clear buffer, then pipe
+            try:
+                self.client.sendall(RESPONSE.encode())
+            except (BrokenPipeError, OSError, socket.error):
+                return
+            self.client_buffer = ''
+        else:
+            # SSH tunnel: forward already-buffered SSH banner to target, no HTTP response
+            try:
+                self.target.sendall(self.client_buffer.encode())
+            except (BrokenPipeError, OSError, socket.error):
+                self.close()
+                return
+            self.client_buffer = ''
 
         self.server.printLog(self.log)
         self.doCONNECT()

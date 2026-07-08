@@ -29,12 +29,23 @@ tampilkan_info_ssh_dropbear() {
     # Menggunakan pgrep untuk mendapatkan PID (Dropbear masih aman)
     dropbear_pids=($(pgrep dropbear))
 
+    # Helper: resolve real IP via ws.py port mapping
+    resolve_real_ip() {
+        local pid=$1 current_ip=$2
+        [[ "$current_ip" != "127.0.0.1" ]] && { echo "$current_ip"; return; }
+        local peer_port
+        peer_port=$(ss -tnp 2>/dev/null | grep "pid=${pid}," | awk '$4 ~ /:(22|109|2222|2223)$/ {print $5}' | head -1 | rev | cut -d: -f1 | rev)
+        [[ -z "$peer_port" ]] && { echo "$current_ip"; return; }
+        cat "/tmp/ws-ips/$peer_port" 2>/dev/null || echo "$current_ip"
+    }
+
     # Parse SSH session langsung dari auth.log (support sshd[PID] dan sshd-session[PID])
     while IFS= read -r line; do
         pid=$(echo "$line" | grep -oP 'sshd(?:-session)?\[\K[0-9]+(?=\])')
         ssh_user=$(echo "$line" | grep -oP '(?<=for )\w+')
         ssh_ip=$(echo "$line" | grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+')
         if [[ -n "$pid" && -d "/proc/$pid" ]]; then
+            ssh_ip=$(resolve_real_ip "$pid" "$ssh_ip")
             echo "SSH PID: $pid, User: $ssh_user, IP: $ssh_ip"
             echo "$pid $ssh_user $ssh_ip" >>/tmp/ssh_log_limit
         fi
@@ -46,6 +57,7 @@ tampilkan_info_ssh_dropbear() {
             dropbear_num=$(wc -l </tmp/login-db-pid-dropbear.txt)
             dropbear_user=$(grep -oP "(?<=for ')\w+(?=' from)" /tmp/login-db-pid-dropbear.txt | sed "s/'//g")
             dropbear_ip=$(grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+' /tmp/login-db-pid-dropbear.txt | cut -d ':' -f 1)
+            dropbear_ip=$(resolve_real_ip "$dropbear_pid" "$dropbear_ip")
             echo "Dropbear PID: $dropbear_pid, User: $dropbear_user, IP: $dropbear_ip"
             echo "$dropbear_pid $dropbear_user $dropbear_ip" >>/tmp/ssh_log_limit
         fi

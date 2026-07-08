@@ -12,7 +12,6 @@ PASS = ''
 # CONST
 BUFLEN = 4096 * 4
 IDLE_TIMEOUT = 300
-CLEANUP_INTERVAL = 120
 DEFAULT_HOSTS = ['127.0.0.1:109', '127.0.0.1:2223', '127.0.0.1:2222', '127.0.0.1:1194']
 RESPONSE = 'HTTP/1.1 101 Switching Protocol\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: foo\r\n\r\n'
 
@@ -36,23 +35,6 @@ class Server(threading.Thread):
             soc.listen(0)
             self.socs.append(soc)
         self.running = True
-
-        # Cleanup stale mapping files
-        def cleanup():
-            while self.running:
-                time.sleep(CLEANUP_INTERVAL)
-                try:
-                    _cutoff = time.time() - IDLE_TIMEOUT
-                    for _e in os.listdir('/tmp/ws-ips/'):
-                        _p = '/tmp/ws-ips/' + _e
-                        try:
-                            if os.stat(_p).st_mtime < _cutoff:
-                                os.remove(_p)
-                        except:
-                            pass
-                except:
-                    pass
-        threading.Thread(target=cleanup, daemon=True).start()
 
         try:
             while self.running:

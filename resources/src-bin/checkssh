@@ -45,18 +45,17 @@ if [ $status_code -eq 200 ]; then
             cat $LOG_FILE | grep -i sshd | grep -i "Accepted password for" >/tmp/login-db-ssh.txt
             cat $LOG_FILE | grep -i dropbear | grep -i "Password auth succeeded" >/tmp/login-db-dropbear.txt
 
-            ssh_pids=($(pgrep sshd))
             dropbear_pids=($(pgrep dropbear))
 
-            for ssh_pid in "${ssh_pids[@]}"; do
-                if grep -q "sshd\[$ssh_pid\]" /tmp/login-db-ssh.txt; then
-                    grep "sshd\[$ssh_pid\]" /tmp/login-db-ssh.txt >/tmp/login-db-pid-ssh.txt
-                    ssh_num=$(wc -l </tmp/login-db-pid-ssh.txt)
-                    ssh_user=$(grep -oP '(?<=for )\w+' /tmp/login-db-pid-ssh.txt)
-                    ssh_ip=$(grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+' /tmp/login-db-pid-ssh.txt)
-                    echo "$ssh_pid $ssh_user $ssh_ip" >>/tmp/ssh_login_user
+            # Parse SSH session langsung dari auth.log (support sshd[PID] dan sshd-session[PID])
+            while IFS= read -r line; do
+                pid=$(echo "$line" | grep -oP 'sshd(?:-session)?\[\K[0-9]+(?=\])')
+                ssh_user=$(echo "$line" | grep -oP '(?<=for )\w+')
+                ssh_ip=$(echo "$line" | grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+')
+                if [[ -n "$pid" && -d "/proc/$pid" ]]; then
+                    echo "$pid $ssh_user $ssh_ip" >>/tmp/ssh_login_user
                 fi
-            done
+            done < /tmp/login-db-ssh.txt
 
             for dropbear_pid in "${dropbear_pids[@]}"; do
                 if grep -q "dropbear\[$dropbear_pid\]" /tmp/login-db-dropbear.txt; then

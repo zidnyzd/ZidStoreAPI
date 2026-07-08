@@ -26,20 +26,19 @@ tampilkan_info_ssh_dropbear() {
         return
     fi
 
-    # Menggunakan pgrep untuk mendapatkan PID
-    ssh_pids=($(pgrep sshd))
+    # Menggunakan pgrep untuk mendapatkan PID (Dropbear masih aman)
     dropbear_pids=($(pgrep dropbear))
 
-    for ssh_pid in "${ssh_pids[@]}"; do
-        if grep -q "sshd\[$ssh_pid\]" /tmp/login-db-ssh.txt; then
-            grep "sshd\[$ssh_pid\]" /tmp/login-db-ssh.txt >/tmp/login-db-pid-ssh.txt
-            ssh_num=$(wc -l </tmp/login-db-pid-ssh.txt)
-            ssh_user=$(grep -oP '(?<=for )\w+' /tmp/login-db-pid-ssh.txt)
-            ssh_ip=$(grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+' /tmp/login-db-pid-ssh.txt)
-            echo "SSH PID: $ssh_pid, User: $ssh_user, IP: $ssh_ip"
-            echo "$ssh_pid $ssh_user $ssh_ip" >>/tmp/ssh_log_limit
+    # Parse SSH session langsung dari auth.log (support sshd[PID] dan sshd-session[PID])
+    while IFS= read -r line; do
+        pid=$(echo "$line" | grep -oP 'sshd(?:-session)?\[\K[0-9]+(?=\])')
+        ssh_user=$(echo "$line" | grep -oP '(?<=for )\w+')
+        ssh_ip=$(echo "$line" | grep -oP '(?<=from )\d+\.\d+\.\d+\.\d+')
+        if [[ -n "$pid" && -d "/proc/$pid" ]]; then
+            echo "SSH PID: $pid, User: $ssh_user, IP: $ssh_ip"
+            echo "$pid $ssh_user $ssh_ip" >>/tmp/ssh_log_limit
         fi
-    done
+    done < /tmp/login-db-ssh.txt
 
     for dropbear_pid in "${dropbear_pids[@]}"; do
         if grep -q "dropbear\[$dropbear_pid\]" /tmp/login-db-dropbear.txt; then

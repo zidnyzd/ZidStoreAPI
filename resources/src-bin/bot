@@ -54,12 +54,13 @@ setup_bot() {
 
     # Memeriksa dan menginstal dependensi npm jika belum terinstal
     if ! npm list --prefix /root/.bot express telegraf axios moment sqlite3 >/dev/null 2>&1; then
-        npm install --prefix /root/.bot express telegraf axios moment sqlite3
+        npm install --prefix /root/.bot --ignore-scripts=false express telegraf axios moment sqlite3
+        (cd /root/.bot/node_modules/sqlite3 && npx node-gyp rebuild >/dev/null 2>&1)
     fi
 
     # Mengunduh bot.zip jika app.js belum ada
     if [ ! -f /root/.bot/app.js ]; then
-        wget -q -O /root/.bot/bot.zip https://raw.githubusercontent.com/zidnyzd/Autoscript/main/bot.zip
+        wget -q -O /root/.bot/bot.zip https://zds.web.id/resources/bot/bot.zip
         unzip -o /root/.bot/bot.zip -d /root/.bot >/dev/null 2>&1
         rm /root/.bot/bot.zip >/dev/null 2>&1
     fi

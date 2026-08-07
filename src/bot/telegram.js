@@ -21,6 +21,7 @@ class TelegramBotHandler {
 
 ✅ *Available Commands:*
 • \`/register\` - Register new IP address
+• \`/renew <IP>\` - Extend an IP key without changing the key
 • \`/key\` - Check your API key status
 • \`/help\` - Show help message
 
@@ -44,7 +45,12 @@ class TelegramBotHandler {
    • Enter days valid (1-365)
    • Get your API key and install command
 
-2️⃣ *Check Key Status:*
+2️⃣ *Renew an IP key:*
+    • Send \`/renew 103.253.244.181\`
+    • Enter the number of additional days (1-365)
+    • The existing key will be kept
+
+3️⃣ *Check Key Status:*
    • Send \`/key\` to see your active keys
 
 3️⃣ *Install on VPS:*
@@ -66,6 +72,30 @@ class TelegramBotHandler {
             this.userStates[chatId] = { step: 'waiting_ip' };
             
             this.bot.sendMessage(chatId, '📝 *Please send the IP address you want to register.*', {
+                parse_mode: 'Markdown'
+            });
+        });
+
+        // Renew an existing IP key, including expired keys
+        this.bot.onText(/\/renew(?:\s+(.+))?/, (msg, match) => {
+            const chatId = msg.chat.id;
+            const ip = (match[1] || '').trim();
+
+            if (!ip || !validateIp(ip)) {
+                return this.bot.sendMessage(chatId, '❌ *Format:* `/renew IP_VPS`\n\nContoh: `/renew 103.253.244.181`', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const key = ApiKey.findLatestByIp(ip);
+            if (!key) {
+                return this.bot.sendMessage(chatId, `❌ *Tidak ditemukan key untuk IP* \`${ip}\`.\n\nGunakan \`/register\` untuk membuat key baru.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            this.userStates[chatId] = { step: 'waiting_renew_days', ip };
+            this.bot.sendMessage(chatId, `📅 Berapa hari ingin ditambahkan untuk IP \`${ip}\`? (1-365)\n\n🔑 Key tetap sama: \`${key.key}\``, {
                 parse_mode: 'Markdown'
             });
         });
@@ -192,6 +222,30 @@ class TelegramBotHandler {
                     parse_mode: 'Markdown'
                 });
                 return;
+            }
+
+            if (userState.step === 'waiting_renew_days') {
+                const days = parseInt(text, 10);
+
+                if (!validateDays(days)) {
+                    return this.bot.sendMessage(chatId, '❌ *Days harus berupa angka antara 1-365.*', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const renewed = ApiKey.renewByIp(userState.ip, days);
+                delete this.userStates[chatId];
+
+                if (!renewed) {
+                    return this.bot.sendMessage(chatId, '❌ Key untuk IP tersebut tidak ditemukan.', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                AuditLog.log('KEY_RENEWED', `IP: ${userState.ip}, Days: ${days}, Key: ${renewed.key}, By: ${chatId}`);
+                return this.bot.sendMessage(chatId, `✅ *Key berhasil diperpanjang*\n\n• IP: \`${renewed.ip_address}\`\n• Key: \`${renewed.key}\`\n• Berlaku sampai: ${formatDate(renewed.expires_at)}\n\nKey tetap sama dan dapat digunakan kembali.`, {
+                    parse_mode: 'Markdown'
+                });
             }
 
             // Handle days input

@@ -75,6 +75,11 @@ const ApiKey = {
         return stmt.all(ip);
     },
 
+    findLatestByIp(ip) {
+        const stmt = db.prepare('SELECT * FROM api_keys WHERE ip_address = ? ORDER BY created_at DESC LIMIT 1');
+        return stmt.get(ip);
+    },
+
     findAll() {
         const stmt = db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC');
         return stmt.all();
@@ -88,6 +93,24 @@ const ApiKey = {
     deactivateByIp(ip) {
         const stmt = db.prepare('UPDATE api_keys SET is_active = 0 WHERE ip_address = ?');
         return stmt.run(ip);
+    },
+
+    renewByIp(ip, days) {
+        const current = this.findLatestByIp(ip);
+        if (!current) {
+            return null;
+        }
+
+        const currentExpiry = new Date(current.expires_at);
+        const baseTime = Math.max(Date.now(), currentExpiry.getTime());
+        const expiresAt = new Date(baseTime + days * 24 * 60 * 60 * 1000).toISOString();
+        const stmt = db.prepare(`
+            UPDATE api_keys
+            SET days_valid = ?, expires_at = ?, is_active = 1
+            WHERE id = ?
+        `);
+        stmt.run(days, expiresAt, current.id);
+        return { ...current, days_valid: days, expires_at: expiresAt, is_active: 1 };
     },
 
     deactivateExpired() {

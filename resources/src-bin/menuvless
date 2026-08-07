@@ -259,9 +259,8 @@ vless_details() {
     echo -e "${orange}─────────────────────────────────────────${neutral}"
 
     while IFS= read -r line; do
-        user=$(echo $line | cut -d ' ' -f 2 | sort -u)
-        exp=$(echo $line | cut -d ' ' -f 3 | sort -u)
-        uuid=$(echo $line | cut -d ' ' -f 4 | sort -u)
+        [[ "$line" =~ ^###[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[^[:space:]]+$ ]] || continue
+        read -r marker user exp uuid _ <<< "$line"
 
         echo -e "   Username      : ${green}$user${neutral}"
         echo -e "   Expired Date  : ${green}$exp${neutral}"
@@ -384,7 +383,8 @@ custom_vless_uuid() {
     config_file="/etc/xray/vless/config.json"
     db_file="/etc/xray/vless/.vless.db"
 
-    sed -i "/^### $user $exp/,/^},{/d" "$config_file"
+    config_tmp=$(mktemp)
+    awk -v user="$user" -v exp="$exp" '$1 == "###" && $2 == user && $3 == exp { skip=1; next } skip && /^},{/ { skip=0; next } !skip { print }' "$config_file" >"$config_tmp" && mv "$config_tmp" "$config_file"
 
     # Add configuration back to config_file
     sed -i '/#vless$/a\### '"$user $exp"'\
@@ -393,7 +393,8 @@ custom_vless_uuid() {
     sed -i '/#vlessgrpc$/a\### '"$user $exp"'\
 },{"id": "'""$new_uuid""'","email": "'""$user""'"'  "$config_file"
   
-    sed -i "/^### $user/d" "$db_file"
+    db_tmp=$(mktemp)
+    awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' "$db_file" >"$db_tmp" && mv "$db_tmp" "$db_file"
     echo "### $user $exp $new_uuid" >> "$db_file"
     systemctl restart vless@config
     if [ $? -eq 0 ]; then

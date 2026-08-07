@@ -131,7 +131,8 @@ echo "${ip_limit}" >/etc/ssh/${user}
 # Calculate new expiration date
 new_exp=$(date -d "$old_exp +${active_days} days" +"%Y-%m-%d")
 
-sed -i "/^### $user/c\### $user $new_exp" /etc/ssh/.ssh.db
+db_tmp=$(mktemp)
+awk -v user="$user" -v new_exp="$new_exp" '$1 == "###" && $2 == user { print "### " user " " new_exp; next } { print }' /etc/ssh/.ssh.db >"$db_tmp" && mv "$db_tmp" /etc/ssh/.ssh.db
 
 # Update the user's expiration date
 chage -E "$new_exp" "$user"

@@ -124,8 +124,11 @@ case $delete_choice in
         ;;
 esac
 
-sed -i "/^### $user $exp/,/^},{/d" /etc/xray/trojan/config.json
-sed -i "/^### $user $exp/d" /etc/xray/trojan/.trojan.db
+config_tmp=$(mktemp)
+awk -v user="$user" -v exp="$exp" '$1 == "###" && $2 == user && $3 == exp { skip=1; next } skip && /^},{/ { skip=0; next } !skip { print }' /etc/xray/trojan/config.json >"$config_tmp" && mv "$config_tmp" /etc/xray/trojan/config.json
+db_tmp=$(mktemp)
+awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' /etc/xray/trojan/.trojan.db >"$db_tmp" && mv "$db_tmp" /etc/xray/trojan/.trojan.db
+rm -f "/etc/xray/trojan/$user" "/etc/xray/trojan/${user}IP" "/etc/xray/trojan/usage/$user"
 if [ -f "/etc/xray/trojan/log-create-${user}.log" ]; then
     rm -f "/etc/xray/trojan/log-create-${user}.log"
     rm -f "/etc/xray/trojan/${user}-non.json"

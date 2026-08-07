@@ -147,7 +147,7 @@ fi
 
 # Calculate new expiration date
 new_exp=$(date -d "$old_exp +${active_days} days" +"%Y-%m-%d")
-uuid=$(grep -E "^### $user " "/etc/xray/vless/.vless.db" | cut -d ' ' -f 4)
+uuid=$(awk -v user="$user" '$1 == "###" && $2 == user { print $4; exit }' "/etc/xray/vless/.vless.db")
 
 # Check if config file exists before making changes
 if [ ! -f "/etc/xray/vless/config.json" ]; then
@@ -155,8 +155,13 @@ if [ ! -f "/etc/xray/vless/config.json" ]; then
     echo '{"inbounds": []}' >/etc/xray/vless/config.json
 fi
 
-sed -i "/^### $user/c\### $user $new_exp" /etc/xray/vless/config.json
-sed -i "/^### $user/c\### $user $new_exp $uuid" /etc/xray/vless/.vless.db
+config_mode=$(stat -c '%a' /etc/xray/vless/config.json)
+config_owner=$(stat -c '%u' /etc/xray/vless/config.json)
+config_group=$(stat -c '%g' /etc/xray/vless/config.json)
+config_tmp=$(mktemp)
+awk -v user="$user" -v new_exp="$new_exp" '$1 == "###" && $2 == user { print "### " user " " new_exp; next } { print }' /etc/xray/vless/config.json >"$config_tmp" && chmod "$config_mode" "$config_tmp" && chown "$config_owner:$config_group" "$config_tmp" && mv "$config_tmp" /etc/xray/vless/config.json
+db_tmp=$(mktemp)
+awk -v user="$user" -v new_exp="$new_exp" -v uuid="$uuid" '$1 == "###" && $2 == user { print "### " user " " new_exp " " uuid; next } { print }' /etc/xray/vless/.vless.db >"$db_tmp" && mv "$db_tmp" /etc/xray/vless/.vless.db
 
 # Restart service with error handling
 if ! systemctl restart vless@config >/dev/null 2>&1; then

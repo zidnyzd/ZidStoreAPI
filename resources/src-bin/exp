@@ -16,8 +16,15 @@ auto_remove() {
         d2=$(date -d "$now" +%s)
         exp2=$(((d1 - d2) / 86400))
         if [[ "$exp2" -le "0" ]]; then
-            sed -i "/^### $user $exp/,/^},{/d" "$config_path"
-            sed -i "/^### $user $exp/d" "$db_path"
+            config_tmp=$(mktemp)
+            awk -v user="$user" -v exp="$exp" '
+                $1 == "###" && $2 == user && $3 == exp { skip=1; next }
+                skip && /^},{/ { skip=0; next }
+                !skip { print }
+            ' "$config_path" >"$config_tmp" && mv "$config_tmp" "$config_path"
+            db_tmp=$(mktemp)
+            awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' "$db_path" >"$db_tmp" && mv "$db_tmp" "$db_path"
+            rm -f "$log_path/$user" "$log_path/${user}IP" "$log_path/usage/$user"
             if [ -f "$log_path/log-create-${user}.log" ]; then
                 rm -f "$log_path/log-create-${user}.log"
                 for file in "${user_files[@]}"; do
@@ -55,7 +62,8 @@ for user in "${data[@]}"; do
     exp2=$(((d1 - d2) / 86400))
     if [[ "$exp2" -le "0" ]]; then
         rm -f /etc/xray/log-createssh-$user.log
-        sed -i "/^### $user/d" /etc/ssh/.ssh.db
+        db_tmp=$(mktemp)
+        awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' /etc/ssh/.ssh.db >"$db_tmp" && mv "$db_tmp" /etc/ssh/.ssh.db
         userdel -f $user 2>/dev/null
     fi
 done

@@ -35,22 +35,31 @@ delete_user() {
     echo "{\"users\": $json_users}"
     
     # Periksa apakah pengguna ada
-    if ! echo "$user_list" | grep -q "^$username$"; then
+    if ! awk -v user="$username" '$0 == user { found=1 } END { exit !found }' <<< "$user_list"; then
         echo "{\"error\": \"Pengguna $username tidak ditemukan untuk protokol $protocol\"}"
         return 1
     fi
     
     # Dapatkan tanggal kedaluwarsa
-    exp=$(grep -E "^### $username " "$db_file" | cut -d ' ' -f 3)
+    exp=$(awk -v user="$username" '$1 == "###" && $2 == user { print $3; exit }' "$db_file")
     
     # Hapus pengguna dari file konfigurasi dan database
     if [ "$protocol" == "ssh" ]; then
         userdel -f $username 2>/dev/null
-        sed -i "/^### $username/d" /etc/ssh/.ssh.db
+        db_tmp=$(mktemp)
+        awk -v user="$username" '$1 == "###" && $2 == user { next } { print }' /etc/ssh/.ssh.db >"$db_tmp" && mv "$db_tmp" /etc/ssh/.ssh.db
         rm -f /etc/xray/log-createssh-$username.log
     else
-        sed -i "/^### $username $exp/,/^},{/d" "$config_file"
-        sed -i "/^### $username $exp/d" "$db_file"
+        config_tmp=$(mktemp)
+        awk -v user="$username" -v exp="$exp" '
+            $1 == "###" && $2 == user && $3 == exp { skip=1; next }
+            skip && /^},{/ { skip=0; next }
+            !skip { print }
+        ' "$config_file" >"$config_tmp" && mv "$config_tmp" "$config_file"
+        db_tmp=$(mktemp)
+        awk -v user="$username" '$1 == "###" && $2 == user { next } { print }' "$db_file" >"$db_tmp" && mv "$db_tmp" "$db_file"
+        rm -f "/etc/xray/$protocol/$username" "/etc/xray/$protocol/${username}IP" "/etc/xray/$protocol/usage/$username"
+        rm -f "/etc/xray/$protocol/${username}-non.json" "/etc/xray/$protocol/${username}-tls.json" "/etc/xray/$protocol/${username}-grpc.json"
     fi
     
     # Hapus log jika ada

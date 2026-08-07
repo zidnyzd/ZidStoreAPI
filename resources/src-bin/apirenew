@@ -20,6 +20,37 @@ duration="$3"
 quota="$4"
 ip_limit="$5"
 
+# Update only the exact username field and preserve config file metadata.
+update_account_entry() {
+    local config_file="$1"
+    local db_file="$2"
+    local user="$3"
+    local new_exp="$4"
+    local uuid="$5"
+    local config_tmp db_tmp config_mode config_owner config_group
+
+    if [ -f "$config_file" ]; then
+        config_mode=$(stat -c '%a' "$config_file") || return 1
+        config_owner=$(stat -c '%u' "$config_file") || return 1
+        config_group=$(stat -c '%g' "$config_file") || return 1
+        config_tmp=$(mktemp) || return 1
+        awk -v user="$user" -v new_exp="$new_exp" '
+            $1 == "###" && $2 == user { print "### " user " " new_exp; next }
+            { print }
+        ' "$config_file" >"$config_tmp" || { rm -f "$config_tmp"; return 1; }
+        chmod "$config_mode" "$config_tmp" && chown "$config_owner:$config_group" "$config_tmp" || { rm -f "$config_tmp"; return 1; }
+        mv "$config_tmp" "$config_file" || { rm -f "$config_tmp"; return 1; }
+    fi
+
+    db_tmp=$(mktemp) || return 1
+    awk -v user="$user" -v new_exp="$new_exp" -v uuid="$uuid" '
+        $1 == "###" && $2 == user { print "### " user " " new_exp " " uuid; next }
+        { print }
+    ' "$db_file" >"$db_tmp" || { rm -f "$db_tmp"; return 1; }
+    chmod 600 "$db_tmp" 2>/dev/null || true
+    mv "$db_tmp" "$db_file" || { rm -f "$db_tmp"; return 1; }
+}
+
 # Validasi input
 validasi_input() {
 
@@ -65,8 +96,7 @@ perbarui_vmess() {
         echo '{"inbounds": []}' >/etc/xray/vmess/config.json
     fi
 
-    sed -i "/^### $username/c\### $username $new_exp" /etc/xray/vmess/config.json
-    sed -i "/^### $username/c\### $username $new_exp $uuid" /etc/xray/vmess/.vmess.db
+    update_account_entry /etc/xray/vmess/config.json /etc/xray/vmess/.vmess.db "$username" "$new_exp" "$uuid" || exit 1
 
     # Restart layanan dengan penanganan kesalahan
     if ! systemctl restart vmess@config >/dev/null 2>&1; then
@@ -110,8 +140,7 @@ perbarui_vless() {
         echo '{"inbounds": []}' >/etc/xray/vless/config.json
     fi
 
-    sed -i "/^### $username/c\### $username $new_exp" /etc/xray/vless/config.json
-    sed -i "/^### $username/c\### $username $new_exp $uuid" /etc/xray/vless/.vless.db
+    update_account_entry /etc/xray/vless/config.json /etc/xray/vless/.vless.db "$username" "$new_exp" "$uuid" || exit 1
 
     # Restart layanan dengan penanganan kesalahan
     if ! systemctl restart vless@config >/dev/null 2>&1; then
@@ -155,8 +184,7 @@ perbarui_trojan() {
         echo '{"inbounds": []}' >/etc/xray/trojan/config.json
     fi
 
-    sed -i "/^### $username/c\### $username $new_exp" /etc/xray/trojan/config.json
-    sed -i "/^### $username/c\### $username $new_exp $uuid" /etc/xray/trojan/.trojan.db
+    update_account_entry /etc/xray/trojan/config.json /etc/xray/trojan/.trojan.db "$username" "$new_exp" "$uuid" || exit 1
 
     # Restart layanan dengan penanganan kesalahan
     if ! systemctl restart trojan@config >/dev/null 2>&1; then
@@ -200,8 +228,7 @@ perbarui_shadowsocks() {
         echo '{"inbounds": []}' >/etc/xray/shadowsocks/config.json
     fi
 
-    sed -i "/^### $username/c\### $username $new_exp" /etc/xray/shadowsocks/config.json
-    sed -i "/^### $username/c\### $username $new_exp $uuid" /etc/xray/shadowsocks/.shadowsocks.db
+    update_account_entry /etc/xray/shadowsocks/config.json /etc/xray/shadowsocks/.shadowsocks.db "$username" "$new_exp" "$uuid" || exit 1
 
     # Restart layanan dengan penanganan kesalahan
     if ! systemctl restart shadowsocks@config >/dev/null 2>&1; then
@@ -232,7 +259,10 @@ perbarui_ssh() {
     # Hitung tanggal kedaluwarsa baru
     new_exp=$(date -d "$old_exp +${duration} days" +"%Y-%m-%d")
 
-    sed -i "/^### $username/c\### $username $new_exp" /etc/ssh/.ssh.db
+    db_tmp=$(mktemp) || exit 1
+    awk -v user="$username" -v new_exp="$new_exp" '$1 == "###" && $2 == user { print "### " user " " new_exp; next } { print }' /etc/ssh/.ssh.db >"$db_tmp" || { rm -f "$db_tmp"; exit 1; }
+    chmod 600 "$db_tmp" 2>/dev/null || true
+    mv "$db_tmp" /etc/ssh/.ssh.db || exit 1
 
     # Perbarui tanggal kedaluwarsa pengguna
     chage -E "$new_exp" "$username"

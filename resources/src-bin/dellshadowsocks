@@ -123,8 +123,11 @@ case $delete_choice in
         ;;
 esac
 
-sed -i "/^### $user $exp/,/^},{/d" /etc/xray/shadowsocks/config.json
-sed -i "/^### $user $exp/d" /etc/xray/shadowsocks/.shadowsocks.db
+config_tmp=$(mktemp)
+awk -v user="$user" -v exp="$exp" '$1 == "###" && $2 == user && $3 == exp { skip=1; next } skip && /^},{/ { skip=0; next } !skip { print }' /etc/xray/shadowsocks/config.json >"$config_tmp" && mv "$config_tmp" /etc/xray/shadowsocks/config.json
+db_tmp=$(mktemp)
+awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' /etc/xray/shadowsocks/.shadowsocks.db >"$db_tmp" && mv "$db_tmp" /etc/xray/shadowsocks/.shadowsocks.db
+rm -f "/etc/xray/shadowsocks/$user" "/etc/xray/shadowsocks/${user}IP" "/etc/xray/shadowsocks/usage/$user"
 if [ -f "/etc/xray/shadowsocks/log-create-${user}.log" ]; then
     rm -f "/etc/xray/shadowsocks/log-create-${user}.log"
     rm -f "/etc/xray/shadowsocks/${user}-non.json"

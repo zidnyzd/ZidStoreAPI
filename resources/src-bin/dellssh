@@ -124,7 +124,8 @@ fi
 
 # Deletion process
 if userdel -f $user 2>/dev/null; then
-    sed -i "/^### $user/d" /etc/ssh/.ssh.db
+    db_tmp=$(mktemp)
+    awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' /etc/ssh/.ssh.db >"$db_tmp" && mv "$db_tmp" /etc/ssh/.ssh.db
     rm -f /etc/xray/log-createssh-$user.log
     
     clear

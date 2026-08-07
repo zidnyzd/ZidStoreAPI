@@ -12,25 +12,114 @@ class TelegramBotHandler {
         this.setupHandlers();
     }
 
+    mainMenu(isUserAdmin = false) {
+        const rows = [
+            [
+                { text: '📝 Register IP', callback_data: 'register_ip' },
+                { text: '🔄 Renew IP', callback_data: 'renew_ip' }
+            ],
+            [
+                { text: '🔑 My Keys', callback_data: 'show_keys' },
+                { text: 'ℹ️ Help', callback_data: 'show_help' }
+            ]
+        ];
+
+        if (isUserAdmin) {
+            rows.push([
+                { text: '📋 List IPs', callback_data: 'admin_list' },
+                { text: '📊 Statistics', callback_data: 'admin_stats' }
+            ]);
+        }
+
+        return { inline_keyboard: rows };
+    }
+
+    sendMainMenu(chatId, text = 'Pilih menu yang ingin digunakan.', isUserAdmin = false) {
+        return this.bot.sendMessage(chatId, text, {
+            parse_mode: 'Markdown',
+            reply_markup: this.mainMenu(isUserAdmin)
+        });
+    }
+
+    sendHelp(chatId, isUserAdmin = false) {
+        const help = '📖 *Bantuan*\n\n' +
+            'Gunakan tombol menu untuk mendaftarkan IP, memperpanjang key, atau melihat status key.\n\n' +
+            'Key yang expired tetap dapat diperpanjang dengan IP yang sama.';
+        return this.sendMainMenu(chatId, help, isUserAdmin);
+    }
+
+    sendKeyStatus(chatId, isUserAdmin = false) {
+        const keys = ApiKey.findAll().slice(0, 5);
+        if (keys.length === 0) {
+            return this.sendMainMenu(chatId, '📭 Belum ada key terdaftar.', isUserAdmin);
+        }
+
+        const keyMsg = keys.map((key) => {
+            const active = key.is_active && new Date(key.expires_at) > new Date();
+            return `• IP: \`${key.ip_address}\`\n  Key: \`${key.key}\`\n  Expired: ${formatDate(key.expires_at)}\n  Status: ${active ? '✅ Active' : '❌ Expired'}`;
+        }).join('\n\n');
+        return this.sendMainMenu(chatId, `🔑 *Keys*\n\n${keyMsg}`, isUserAdmin);
+    }
+
+    sendAdminList(chatId) {
+        const keys = ApiKey.findAll().slice(0, 20);
+        const text = keys.length === 0
+            ? '📭 Tidak ada IP terdaftar.'
+            : `📋 *Registered IPs*\n\n${keys.map((key, index) => `${index + 1}. \`${key.ip_address}\` — ${formatDate(key.expires_at)}`).join('\n')}`;
+        return this.sendMainMenu(chatId, text, true);
+    }
+
+    sendAdminStats(chatId) {
+        const { db } = require('../database/init');
+        const totalKeys = db.prepare('SELECT COUNT(*) as count FROM api_keys').get();
+        const activeKeys = db.prepare('SELECT COUNT(*) as count FROM api_keys WHERE is_active = 1').get();
+        const totalDownloads = db.prepare('SELECT SUM(usage_count) as total FROM api_keys').get();
+        const text = `📊 *Statistics*\n\n• Total keys: ${totalKeys.count}\n• Active keys: ${activeKeys.count}\n• Downloads: ${totalDownloads.total || 0}`;
+        return this.sendMainMenu(chatId, text, true);
+    }
+
     setupHandlers() {
+        // Handle inline keyboard buttons
+        this.bot.on('callback_query', async (query) => {
+            const chatId = query.message.chat.id;
+            const isUserAdmin = isAdmin(query.from.id);
+            await this.bot.answerCallbackQuery(query.id);
+
+            switch (query.data) {
+                case 'register_ip':
+                    this.userStates[chatId] = { step: 'waiting_ip' };
+                    return this.bot.sendMessage(chatId, '📝 *Kirim IP VPS yang ingin didaftarkan.*', {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
+                    });
+                case 'renew_ip':
+                    this.userStates[chatId] = { step: 'waiting_renew_ip' };
+                    return this.bot.sendMessage(chatId, '🔄 *Kirim IP VPS yang ingin diperpanjang.*', {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
+                    });
+                case 'show_keys':
+                    return this.sendKeyStatus(chatId, isUserAdmin);
+                case 'show_help':
+                    return this.sendHelp(chatId, isUserAdmin);
+                case 'admin_list':
+                    if (!isUserAdmin) return this.bot.sendMessage(chatId, '❌ Admin only command.');
+                    return this.sendAdminList(chatId);
+                case 'admin_stats':
+                    if (!isUserAdmin) return this.bot.sendMessage(chatId, '❌ Admin only command.');
+                    return this.sendAdminStats(chatId);
+                case 'main_menu':
+                    delete this.userStates[chatId];
+                    return this.sendMainMenu(chatId, '🏠 *Menu utama*', isUserAdmin);
+                default:
+                    return undefined;
+            }
+        });
+
         // /start command
         this.bot.onText(/\/start/, (msg) => {
             const chatId = msg.chat.id;
-            const welcomeMsg = `
-🚀 *ZidStore Tunnel Bot*
-
-✅ *Available Commands:*
-• \`/register\` - Register new IP address
-• \`/renew <IP>\` - Extend an IP key without changing the key
-• \`/key\` - Check your API key status
-• \`/help\` - Show help message
-
-👨‍💼 *Admin Commands:*
-• \`/list\` - List all registered IPs
-• \`/revoke <ip>\` - Revoke IP key
-• \`/stats\` - Show system statistics
-            `;
-            this.bot.sendMessage(chatId, welcomeMsg, { parse_mode: 'Markdown' });
+            this.sendMainMenu(chatId, '🚀 *ZidStore Tunnel Bot*\n\nGunakan tombol menu berikut:', isAdmin(msg.from.id));
         });
 
         // /help command
@@ -222,6 +311,26 @@ class TelegramBotHandler {
                     parse_mode: 'Markdown'
                 });
                 return;
+            }
+
+            if (userState.step === 'waiting_renew_ip') {
+                if (!validateIp(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format IP tidak valid. Contoh: `103.253.244.181`', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const key = ApiKey.findLatestByIp(text);
+                if (!key) {
+                    delete this.userStates[chatId];
+                    return this.bot.sendMessage(chatId, '❌ Key untuk IP tersebut tidak ditemukan.');
+                }
+
+                userState.ip = text;
+                userState.step = 'waiting_renew_days';
+                return this.bot.sendMessage(chatId, `📅 Masukkan jumlah hari (1-365).\n\nKey tetap: \`${key.key}\``, {
+                    parse_mode: 'Markdown'
+                });
             }
 
             if (userState.step === 'waiting_renew_days') {

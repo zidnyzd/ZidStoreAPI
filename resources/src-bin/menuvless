@@ -384,7 +384,11 @@ custom_vless_uuid() {
     db_file="/etc/xray/vless/.vless.db"
 
     config_tmp=$(mktemp)
-    awk -v user="$user" -v exp="$exp" '$1 == "###" && $2 == user && $3 == exp { skip=1; next } skip && /^},{/ { skip=0; next } !skip { print }' "$config_file" >"$config_tmp" && mv "$config_tmp" "$config_file"
+    awk -v user="$user" -v exp_date="$exp" '$1 == "###" && $2 == user && $3 == exp_date { skip=1; next } skip && /^},{/ { skip=0; next } !skip { print }' "$config_file" >"$config_tmp" \
+        && chmod --reference="$config_file" "$config_tmp" \
+        && chown --reference="$config_file" "$config_tmp" \
+        && mv "$config_tmp" "$config_file" \
+        || rm -f "$config_tmp"
 
     # Add configuration back to config_file
     sed -i '/#vless$/a\### '"$user $exp"'\

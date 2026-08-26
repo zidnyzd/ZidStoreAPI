@@ -15,6 +15,7 @@ resources/src-bin/autokill text eol=lf
 resources/src-bin/backuprestore text eol=lf
 resources/src-bin/backuprestore.js text eol=lf
 resources/src-bin/bot text eol=lf
+resources/src-bin/cleanuporphan text eol=lf
 resources/src-bin/checkshadowsocks text eol=lf
 resources/src-bin/checkssh text eol=lf
 resources/src-bin/checktrojan text eol=lf

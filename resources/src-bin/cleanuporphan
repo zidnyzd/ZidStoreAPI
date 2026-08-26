@@ -1,0 +1,84 @@
+#!/bin/bash
+#
+# cleanuporphan - pembersih sekali-jalan untuk akun xray yang expired/yatim
+#
+# Menghapus blok akun dari /etc/xray/<proto>/config.json yang baris markernya
+#   ### <user> <tanggal> [HH:MM:SS]
+# sudah lewat tanggalnya, WALAUUPUN akun tersebut sudah tidak ada di
+# /etc/xray/<proto>/.<proto>.db (sisa bug awk "-v exp") atau merupakan
+# trial yang sesi tmux-nya mati (reboot).
+#
+# Pemakaian:
+#   cleanuporphan              # hapus + restart service
+#   cleanuporphan --dry-run    # tampilkan saja apa yang akan dihapus
+#
+
+DRY_RUN=0
+[ "$1" == "--dry-run" ] && DRY_RUN=1
+
+protocols="vmess vless trojan shadowsocks"
+now_ts=$(date +%s)
+
+for proto in $protocols; do
+    dir="/etc/xray/$proto"
+    config="$dir/config.json"
+
+    [ -f "$config" ] || continue
+
+    # Snapshot daftar marker SEBELUM file dimodifikasi
+    mapfile -t entries < <(grep -E '^### ' "$config" | awk '{print $2, $3, $4}')
+
+    declare -A seen=()
+    removed=0
+
+    for entry in "${entries[@]}"; do
+        read -r uname udate utime <<<"$entry"
+        [ -n "$uname" ] || continue
+        [ -n "${seen[$uname]}" ] && continue
+
+        # Normalisasi tanggal ("YYYY-MM-DD" atau "YYYY-MM-DD HH:MM:SS")
+        ts=$(date -d "${udate} ${utime}" +%s 2>/dev/null) || continue
+        [ "$ts" -le "$now_ts" ] || continue
+
+        seen[$uname]=1
+
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "[$proto] akan dihapus: $uname (expired $udate ${utime})"
+            continue
+        fi
+
+        config_tmp=$(mktemp)
+        awk -v user="$uname" '
+            $1 == "###" && $2 == user { skip=1; next }
+            skip && /^[[:space:]]*\},{/ { skip=0; next }
+            !skip { print }
+        ' "$config" >"$config_tmp" \
+            && chmod --reference="$config" "$config_tmp" \
+            && chown --reference="$config" "$config_tmp" \
+            && mv "$config_tmp" "$config" \
+            || rm -f "$config_tmp"
+
+        rm -f "$dir/$uname" "$dir/${uname}IP" "$dir/usage/$uname" \
+              "$dir/log-create-$uname.log" \
+              "$dir/$uname-tls.json" "$dir/$uname-non.json" "$dir/$uname-grpc.json" \
+              "/var/www/html/$proto-$uname.txt"
+
+        echo "[$proto] terhapus: $uname (expired $udate ${utime})"
+        removed=$((removed + 1))
+    done
+
+    if [ "$DRY_RUN" -eq 0 ] && [ "$removed" -gt 0 ]; then
+        if systemctl restart "$proto@config" >/dev/null 2>&1; then
+            echo "[$proto] service di-restart"
+        else
+            echo "[$proto] PERINGATAN: gagal restart $proto@config"
+        fi
+    fi
+    unset seen
+done
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Dry-run selesai. Jalankan tanpa --dry-run untuk menerapkan."
+else
+    echo "Cleanup selesai."
+fi

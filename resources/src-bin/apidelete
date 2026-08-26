@@ -51,11 +51,15 @@ delete_user() {
         rm -f /etc/xray/log-createssh-$username.log
     else
         config_tmp=$(mktemp)
-        awk -v user="$username" -v exp="$exp" '
-            $1 == "###" && $2 == user && $3 == exp { skip=1; next }
+        awk -v user="$username" -v exp_date="$exp" '
+            $1 == "###" && $2 == user && $3 == exp_date { skip=1; next }
             skip && /^},{/ { skip=0; next }
             !skip { print }
-        ' "$config_file" >"$config_tmp" && mv "$config_tmp" "$config_file"
+        ' "$config_file" >"$config_tmp" \
+            && chmod --reference="$config_file" "$config_tmp" \
+            && chown --reference="$config_file" "$config_tmp" \
+            && mv "$config_tmp" "$config_file" \
+            || rm -f "$config_tmp"
         db_tmp=$(mktemp)
         awk -v user="$username" '$1 == "###" && $2 == user { next } { print }' "$db_file" >"$db_tmp" && mv "$db_tmp" "$db_file"
         rm -f "/etc/xray/$protocol/$username" "/etc/xray/$protocol/${username}IP" "/etc/xray/$protocol/usage/$username"

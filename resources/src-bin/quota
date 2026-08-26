@@ -71,11 +71,15 @@ process_users() {
                     readable_limit=$(convert_size ${limit})
                     exp=$(grep -w "^### $user" $config_file | cut -d ' ' -f 3 | sort | uniq)
                     config_tmp=$(mktemp)
-                    awk -v user="$user" -v exp="$exp" '
-                        $1 == "###" && $2 == user && $3 == exp { skip=1; next }
+                    awk -v user="$user" -v exp_date="$exp" '
+                        $1 == "###" && $2 == user && $3 == exp_date { skip=1; next }
                         skip && /^},{/ { skip=0; next }
                         !skip { print }
-                    ' "$config_file" >"$config_tmp" && mv "$config_tmp" "$config_file"
+                    ' "$config_file" >"$config_tmp" \
+                        && chmod --reference="$config_file" "$config_tmp" \
+                        && chown --reference="$config_file" "$config_tmp" \
+                        && mv "$config_tmp" "$config_file" \
+                        || rm -f "$config_tmp"
                     db_tmp=$(mktemp)
                     awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' "$db_file" >"$db_tmp" && mv "$db_tmp" "$db_file"
                     rm -f "/etc/xray/${protocol}/${user}" "/etc/xray/${protocol}/${user}IP" "/etc/xray/${protocol}/usage/${user}"

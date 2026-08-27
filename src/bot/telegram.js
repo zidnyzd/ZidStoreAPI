@@ -5,6 +5,13 @@ const { ApiKey, VpnAccount, AuditLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
 const { generateApiKey, validateIp, validateDays, formatDate, generateInstallCommand, isAdmin } = require(helperPath);
 
+// Hanya user dengan ID ini yang diizinkan menggunakan bot (admin selalu diizinkan)
+const ALLOWED_USER_ID = 6200639382;
+
+function isAuthorized(telegramId) {
+    return isAdmin(telegramId) || String(telegramId) === String(ALLOWED_USER_ID);
+}
+
 class TelegramBotHandler {
     constructor() {
         this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
@@ -48,8 +55,8 @@ class TelegramBotHandler {
         return this.sendMainMenu(chatId, help, isUserAdmin);
     }
 
-    // Helper: kirim list terpaginasi (10 item per halaman)
-    async sendPaginated(chatId, title, items, page = 0, isUserAdmin = false, prefix = 'page') {
+    // Helper: kirim/edit list terpaginasi (10 item per halaman)
+    async sendPaginated(chatId, title, items, page = 0, isUserAdmin = false, prefix = 'page', messageId = null) {
         const perPage = 10;
         const totalPages = Math.ceil(items.length / perPage);
         const currentPage = Math.min(page, totalPages - 1);
@@ -70,13 +77,24 @@ class TelegramBotHandler {
         }
         navButtons.push({ text: '🏠 Menu', callback_data: 'main_menu' });
 
-        return this.bot.sendMessage(chatId, text, {
+        const opts = {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [navButtons] }
-        });
+        };
+
+        // Jika ada messageId, edit pesan yang sudah ada (tidak kirim pesan baru)
+        if (messageId) {
+            try {
+                return await this.bot.editMessageText(text, { chat_id: chatId, message_id: messageId, ...opts });
+            } catch (err) {
+                // Jika edit gagal (pesan tidak berubah / terlalu lama), kirim pesan baru
+                return this.bot.sendMessage(chatId, text, opts);
+            }
+        }
+        return this.bot.sendMessage(chatId, text, opts);
     }
 
-    sendKeyStatus(chatId, isUserAdmin = false, page = 0) {
+    sendKeyStatus(chatId, isUserAdmin = false, page = 0, messageId = null) {
         const keys = ApiKey.findAll();
         if (keys.length === 0) {
             return this.sendMainMenu(chatId, '📭 Belum ada key terdaftar.', isUserAdmin);
@@ -86,17 +104,17 @@ class TelegramBotHandler {
             const active = key.is_active && new Date(key.expires_at) > new Date();
             return `• IP: \`${key.ip_address}\`\n  Key: \`${key.key}\`\n  Expired: ${formatDate(key.expires_at)}\n  Status: ${active ? '✅ Active' : '❌ Expired'}`;
         });
-        return this.sendPaginated(chatId, '🔑 *Keys*', items, page, isUserAdmin, 'keys');
+        return this.sendPaginated(chatId, '🔑 *Keys*', items, page, isUserAdmin, 'keys', messageId);
     }
 
-    sendAdminList(chatId, page = 0) {
+    sendAdminList(chatId, page = 0, messageId = null) {
         const keys = ApiKey.findAll();
         if (keys.length === 0) {
             return this.sendMainMenu(chatId, '📭 Tidak ada IP terdaftar.', true);
         }
 
         const items = keys.map((key, index) => `${index + 1}. \`${key.ip_address}\` — ${formatDate(key.expires_at)}`);
-        return this.sendPaginated(chatId, '📋 *Registered IPs*', items, page, true, 'adminlist');
+        return this.sendPaginated(chatId, '📋 *Registered IPs*', items, page, true, 'adminlist', messageId);
     }
 
     sendAdminStats(chatId) {
@@ -112,7 +130,15 @@ class TelegramBotHandler {
         // Handle inline keyboard buttons
         this.bot.on('callback_query', async (query) => {
             const chatId = query.message.chat.id;
-            const isUserAdmin = isAdmin(query.from.id);
+            const userId = query.from.id;
+
+            // Gate: hanya user yang diizinkan
+            if (!isAuthorized(userId)) {
+                await this.bot.answerCallbackQuery(query.id, { text: '⛔ Anda tidak memiliki izin.', show_alert: true });
+                return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+            }
+
+            const isUserAdmin = isAdmin(userId);
             await this.bot.answerCallbackQuery(query.id);
 
             switch (query.data) {
@@ -145,12 +171,12 @@ class TelegramBotHandler {
                     // Handle pagination callbacks: keys_<page> / adminlist_<page>
                     if (query.data.startsWith('keys_')) {
                         const page = parseInt(query.data.split('_')[1]) || 0;
-                        return this.sendKeyStatus(chatId, isUserAdmin, page);
+                        return this.sendKeyStatus(chatId, isUserAdmin, page, query.message.message_id);
                     }
                     if (query.data.startsWith('adminlist_')) {
                         if (!isUserAdmin) return this.bot.sendMessage(chatId, '❌ Admin only command.');
                         const page = parseInt(query.data.split('_')[1]) || 0;
-                        return this.sendAdminList(chatId, page);
+                        return this.sendAdminList(chatId, page, query.message.message_id);
                     }
                     return undefined;
             }
@@ -159,12 +185,14 @@ class TelegramBotHandler {
         // /start command
         this.bot.onText(/\/start/, (msg) => {
             const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             this.sendMainMenu(chatId, '🚀 *ZidStore Tunnel Bot*\n\nGunakan tombol menu berikut:', isAdmin(msg.from.id));
         });
 
         // /help command
         this.bot.onText(/\/help/, (msg) => {
             const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             const helpMsg = `
 📖 *How to Use ZidStore Tunnel Bot*
 
@@ -198,6 +226,7 @@ class TelegramBotHandler {
         // /register command
         this.bot.onText(/\/register/, (msg) => {
             const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             this.userStates[chatId] = { step: 'waiting_ip' };
             
             this.bot.sendMessage(chatId, '📝 *Please send the IP address you want to register.*', {
@@ -208,6 +237,7 @@ class TelegramBotHandler {
         // Renew an existing IP key, including expired keys
         this.bot.onText(/\/renew(?:\s+(.+))?/, (msg, match) => {
             const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             const ip = (match[1] || '').trim();
 
             if (!ip || !validateIp(ip)) {
@@ -232,6 +262,7 @@ class TelegramBotHandler {
         // /key command
         this.bot.onText(/\/key/, (msg) => {
             const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             const keys = ApiKey.findAll();
             
             if (keys.length === 0) {
@@ -251,6 +282,7 @@ class TelegramBotHandler {
 
         // Admin: /list command
         this.bot.onText(/\/list/, (msg) => {
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(msg.chat.id, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             if (!isAdmin(msg.from.id)) {
                 return this.bot.sendMessage(msg.chat.id, '❌ *Admin only command.*', { parse_mode: 'Markdown' });
             }
@@ -271,6 +303,7 @@ class TelegramBotHandler {
 
         // Admin: /revoke command
         this.bot.onText(/\/revoke\s+(.+)/, (msg, match) => {
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(msg.chat.id, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             if (!isAdmin(msg.from.id)) {
                 return this.bot.sendMessage(msg.chat.id, '❌ *Admin only command.*', { parse_mode: 'Markdown' });
             }
@@ -293,6 +326,7 @@ class TelegramBotHandler {
 
         // Admin: /stats command
         this.bot.onText(/\/stats/, (msg) => {
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(msg.chat.id, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
             if (!isAdmin(msg.from.id)) {
                 return this.bot.sendMessage(msg.chat.id, '❌ *Admin only command.*', { parse_mode: 'Markdown' });
             }
@@ -318,6 +352,15 @@ class TelegramBotHandler {
         this.bot.on('message', (msg) => {
             const chatId = msg.chat.id;
             const text = msg.text?.trim();
+
+            // Abaikan command yang sudah ditangani oleh onText
+            if (text && text.startsWith('/')) return;
+
+            // Gate: hanya user yang diizinkan
+            if (!isAuthorized(msg.from.id)) {
+                return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+            }
+
             const userState = this.userStates[chatId];
 
             if (!userState || !text) return;

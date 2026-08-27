@@ -48,25 +48,55 @@ class TelegramBotHandler {
         return this.sendMainMenu(chatId, help, isUserAdmin);
     }
 
-    sendKeyStatus(chatId, isUserAdmin = false) {
-        const keys = ApiKey.findAll().slice(0, 5);
+    // Helper: kirim list terpaginasi (10 item per halaman)
+    async sendPaginated(chatId, title, items, page = 0, isUserAdmin = false, prefix = 'page') {
+        const perPage = 10;
+        const totalPages = Math.ceil(items.length / perPage);
+        const currentPage = Math.min(page, totalPages - 1);
+        const start = currentPage * perPage;
+        const pageItems = items.slice(start, start + perPage);
+
+        const body = pageItems.join('\n');
+        const header = `${title}\n\n📄 Halaman ${currentPage + 1}/${totalPages} (${items.length} total)\n\n`;
+        const text = `${header}${body}`;
+
+        // Build navigation buttons
+        const navButtons = [];
+        if (currentPage > 0) {
+            navButtons.push({ text: '⬅️ Prev', callback_data: `${prefix}_${currentPage - 1}` });
+        }
+        if (currentPage < totalPages - 1) {
+            navButtons.push({ text: '➡️ Next', callback_data: `${prefix}_${currentPage + 1}` });
+        }
+        navButtons.push({ text: '🏠 Menu', callback_data: 'main_menu' });
+
+        return this.bot.sendMessage(chatId, text, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [navButtons] }
+        });
+    }
+
+    sendKeyStatus(chatId, isUserAdmin = false, page = 0) {
+        const keys = ApiKey.findAll();
         if (keys.length === 0) {
             return this.sendMainMenu(chatId, '📭 Belum ada key terdaftar.', isUserAdmin);
         }
 
-        const keyMsg = keys.map((key) => {
+        const items = keys.map((key) => {
             const active = key.is_active && new Date(key.expires_at) > new Date();
             return `• IP: \`${key.ip_address}\`\n  Key: \`${key.key}\`\n  Expired: ${formatDate(key.expires_at)}\n  Status: ${active ? '✅ Active' : '❌ Expired'}`;
-        }).join('\n\n');
-        return this.sendMainMenu(chatId, `🔑 *Keys*\n\n${keyMsg}`, isUserAdmin);
+        });
+        return this.sendPaginated(chatId, '🔑 *Keys*', items, page, isUserAdmin, 'keys');
     }
 
-    sendAdminList(chatId) {
-        const keys = ApiKey.findAll().slice(0, 20);
-        const text = keys.length === 0
-            ? '📭 Tidak ada IP terdaftar.'
-            : `📋 *Registered IPs*\n\n${keys.map((key, index) => `${index + 1}. \`${key.ip_address}\` — ${formatDate(key.expires_at)}`).join('\n')}`;
-        return this.sendMainMenu(chatId, text, true);
+    sendAdminList(chatId, page = 0) {
+        const keys = ApiKey.findAll();
+        if (keys.length === 0) {
+            return this.sendMainMenu(chatId, '📭 Tidak ada IP terdaftar.', true);
+        }
+
+        const items = keys.map((key, index) => `${index + 1}. \`${key.ip_address}\` — ${formatDate(key.expires_at)}`);
+        return this.sendPaginated(chatId, '📋 *Registered IPs*', items, page, true, 'adminlist');
     }
 
     sendAdminStats(chatId) {
@@ -112,6 +142,16 @@ class TelegramBotHandler {
                     delete this.userStates[chatId];
                     return this.sendMainMenu(chatId, '🏠 *Menu utama*', isUserAdmin);
                 default:
+                    // Handle pagination callbacks: keys_<page> / adminlist_<page>
+                    if (query.data.startsWith('keys_')) {
+                        const page = parseInt(query.data.split('_')[1]) || 0;
+                        return this.sendKeyStatus(chatId, isUserAdmin, page);
+                    }
+                    if (query.data.startsWith('adminlist_')) {
+                        if (!isUserAdmin) return this.bot.sendMessage(chatId, '❌ Admin only command.');
+                        const page = parseInt(query.data.split('_')[1]) || 0;
+                        return this.sendAdminList(chatId, page);
+                    }
                     return undefined;
             }
         });
@@ -192,10 +232,7 @@ class TelegramBotHandler {
         // /key command
         this.bot.onText(/\/key/, (msg) => {
             const chatId = msg.chat.id;
-            const clientIp = msg.from.username || 'unknown';
-            
-            // Get all keys for this user (we'll use chat IP if available, or show all)
-            const keys = ApiKey.findAll().slice(0, 5);
+            const keys = ApiKey.findAll();
             
             if (keys.length === 0) {
                 this.bot.sendMessage(chatId, '📭 *You have no registered keys.*\n\nUse `/register` to create one.', {
@@ -204,18 +241,12 @@ class TelegramBotHandler {
                 return;
             }
 
-            let keyMsg = '🔑 *Your API Keys:*\n\n';
-            keys.forEach(key => {
+            const items = keys.map(key => {
                 const isActive = key.is_active && new Date(key.expires_at) > new Date();
                 const status = isActive ? '✅ Active' : '❌ Expired';
-                keyMsg += `• *IP:* \`${key.ip_address}\`\n`;
-                keyMsg += `  *Key:* \`${key.key}\`\n`;
-                keyMsg += `  *Expires:* ${formatDate(key.expires_at)}\n`;
-                keyMsg += `  *Status:* ${status}\n`;
-                keyMsg += `  *Usage:* ${key.usage_count} times\n\n`;
+                return `• *IP:* \`${key.ip_address}\`\n  *Key:* \`${key.key}\`\n  *Expires:* ${formatDate(key.expires_at)}\n  *Status:* ${status}\n  *Usage:* ${key.usage_count} times`;
             });
-
-            this.bot.sendMessage(chatId, keyMsg, { parse_mode: 'Markdown' });
+            this.sendPaginated(chatId, '🔑 *Your API Keys:*', items, 0, isAdmin(msg.from.id), 'keys');
         });
 
         // Admin: /list command
@@ -224,23 +255,18 @@ class TelegramBotHandler {
                 return this.bot.sendMessage(msg.chat.id, '❌ *Admin only command.*', { parse_mode: 'Markdown' });
             }
 
-            const keys = ApiKey.findAll().slice(0, 20);
+            const keys = ApiKey.findAll();
             
             if (keys.length === 0) {
                 return this.bot.sendMessage(msg.chat.id, '📭 *No registered keys found.*', { parse_mode: 'Markdown' });
             }
 
-            let listMsg = '📋 *Registered IP Addresses:*\n\n';
-            keys.forEach((key, i) => {
+            const items = keys.map((key, i) => {
                 const isActive = key.is_active && new Date(key.expires_at) > new Date();
                 const status = isActive ? '✅' : '❌';
-                listMsg += `${i + 1}. ${status} \`${key.ip_address}\`\n`;
-                listMsg += `   Key: \`${key.key}\`\n`;
-                listMsg += `   Expires: ${formatDate(key.expires_at)}\n`;
-                listMsg += `   Usage: ${key.usage_count} times\n\n`;
+                return `${i + 1}. ${status} \`${key.ip_address}\`\n   Key: \`${key.key}\`\n   Expires: ${formatDate(key.expires_at)}\n   Usage: ${key.usage_count} times`;
             });
-
-            this.bot.sendMessage(msg.chat.id, listMsg, { parse_mode: 'Markdown' });
+            this.sendPaginated(msg.chat.id, '📋 *Registered IP Addresses:*', items, 0, true, 'adminlist');
         });
 
         // Admin: /revoke command

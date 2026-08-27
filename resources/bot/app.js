@@ -53,6 +53,31 @@ db.run(`CREATE TABLE IF NOT EXISTS Server (
   }
 });
 
+// Hanya user dengan ID ini yang diizinkan menggunakan bot
+const ALLOWED_USER_ID = 6200639382;
+
+// Cek apakah user_id diizinkan menggunakan bot (admin selalu diizinkan)
+function isAuthorized(userId) {
+  return adminIds.includes(userId) || userId === ALLOWED_USER_ID;
+}
+
+// Middleware global: cek otorisasi untuk SEMUA callback query (button) dan text message
+bot.use(async (ctx, next) => {
+  // Hanya cek untuk update yang punya from.id (callback_query & message)
+  const userId = ctx.from?.id;
+  if (!userId) return next();
+
+  if (!isAuthorized(userId)) {
+    console.log(`Akses ditolak untuk user_id=${userId} (@${ctx.from?.username || 'N/A'})`);
+    if (ctx.callbackQuery) {
+      await ctx.answerCbQuery('⛔ Anda tidak memiliki izin.', { show_alert: true });
+    }
+    await ctx.reply('⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+    return;
+  }
+  return next();
+});
+
 // Menyimpan state pengguna
 const userState = {};
 console.log('User state initialized');
@@ -191,7 +216,8 @@ async function sendAdminMenu(ctx) {
     [{ text: '❌ Hapus Server', callback_data: 'deleteserver' }],   
     [{ text: '📜 List Server', callback_data: 'listserver' }],     
     [{ text: '🗑️ Reset Server', callback_data: 'resetdb' }],
-    [{ text: '🔙 Kembali', callback_data: 'send_main_menu' }]
+
+    [{ text: '�🔙 Kembali', callback_data: 'send_main_menu' }]
   ];
 
   try {

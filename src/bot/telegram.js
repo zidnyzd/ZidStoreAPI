@@ -26,6 +26,10 @@ class TelegramBotHandler {
                 { text: '🔄 Renew IP', callback_data: 'renew_ip' }
             ],
             [
+                { text: '� Change IP', callback_data: 'change_ip' },
+                { text: '🗑️ Delete IP', callback_data: 'delete_ip' }
+            ],
+            [
                 { text: '🔑 My Keys', callback_data: 'show_keys' },
                 { text: 'ℹ️ Help', callback_data: 'show_help' }
             ]
@@ -50,7 +54,7 @@ class TelegramBotHandler {
 
     sendHelp(chatId, isUserAdmin = false) {
         const help = '📖 *Bantuan*\n\n' +
-            'Gunakan tombol menu untuk mendaftarkan IP, memperpanjang key, atau melihat status key.\n\n' +
+            'Gunakan tombol menu untuk mendaftarkan IP, memperpanjang key, mengganti IP, menghapus IP, atau melihat status key.\n\n' +
             'Key yang expired tetap dapat diperpanjang dengan IP yang sama.';
         return this.sendMainMenu(chatId, help, isUserAdmin);
     }
@@ -154,6 +158,18 @@ class TelegramBotHandler {
                         parse_mode: 'Markdown',
                         reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
                     });
+                case 'change_ip':
+                    this.userStates[chatId] = { step: 'waiting_change_old_ip' };
+                    return this.bot.sendMessage(chatId, '🔀 *Kirim IP VPS lama yang ingin diganti.*', {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
+                    });
+                case 'delete_ip':
+                    this.userStates[chatId] = { step: 'waiting_delete_ip' };
+                    return this.bot.sendMessage(chatId, '🗑️ *Kirim IP VPS yang ingin dihapus dari database.*', {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
+                    });
                 case 'show_keys':
                     return this.sendKeyStatus(chatId, isUserAdmin);
                 case 'show_help':
@@ -207,10 +223,18 @@ class TelegramBotHandler {
     • Enter the number of additional days (1-365)
     • The existing key will be kept
 
-3️⃣ *Check Key Status:*
+3️⃣ *Change IP:*
+    • Send \`/change\` or \`/change <OLD_IP> <NEW_IP>\`
+    • Transfer existing license & key to new IP
+
+4️⃣ *Delete IP:*
+    • Send \`/delete <IP>\`
+    • Permanently delete IP & its keys from database
+
+5️⃣ *Check Key Status:*
    • Send \`/key\` to see your active keys
 
-3️⃣ *Install on VPS:*
+6️⃣ *Install on VPS:*
    • Copy the install command from registration
    • Run it in your VPS terminal
    • Wait for installation to complete
@@ -255,6 +279,90 @@ class TelegramBotHandler {
 
             this.userStates[chatId] = { step: 'waiting_renew_days', ip };
             this.bot.sendMessage(chatId, `📅 Berapa hari ingin ditambahkan untuk IP \`${ip}\`? (1-365)\n\n🔑 Key tetap sama: \`${key.key}\``, {
+                parse_mode: 'Markdown'
+            });
+        });
+
+        // Change IP command: /change or /change <old_ip> <new_ip>
+        this.bot.onText(/\/change(?:\s+(\S+)\s+(\S+))?/, (msg, match) => {
+            const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+
+            const oldIp = match[1]?.trim();
+            const newIp = match[2]?.trim();
+
+            if (!oldIp || !newIp) {
+                // Masuk mode interaktif
+                this.userStates[chatId] = { step: 'waiting_change_old_ip' };
+                return this.bot.sendMessage(chatId, '🔀 *Kirim IP VPS lama yang ingin diganti.*', {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Batal', callback_data: 'main_menu' }]] }
+                });
+            }
+
+            if (!validateIp(oldIp) || !validateIp(newIp)) {
+                return this.bot.sendMessage(chatId, '❌ Format IP tidak valid.\n\nContoh: `/change 103.253.244.181 103.253.244.182`', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            if (oldIp === newIp) {
+                return this.bot.sendMessage(chatId, '❌ IP baru tidak boleh sama dengan IP lama.');
+            }
+
+            const existingOld = ApiKey.findLatestByIp(oldIp);
+            if (!existingOld) {
+                return this.bot.sendMessage(chatId, `❌ Tidak ditemukan lisensi untuk IP lama \`${oldIp}\`.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const existingNew = ApiKey.findByIp(newIp).find(k => k.is_active && new Date(k.expires_at) > new Date());
+            if (existingNew) {
+                return this.bot.sendMessage(chatId, `❌ IP baru \`${newIp}\` sudah memiliki lisensi aktif.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const updated = ApiKey.changeIp(oldIp, newIp);
+            AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${newIp}, Key: ${updated.key}, By: ${msg.from.id}`);
+
+            return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${newIp}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
+                parse_mode: 'Markdown'
+            });
+        });
+
+        // Delete IP command: /delete <IP>
+        this.bot.onText(/\/delete(?:\s+(.+))?/, (msg, match) => {
+            const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+
+            const ip = (match[1] || '').trim();
+            if (!ip) {
+                this.userStates[chatId] = { step: 'waiting_delete_ip' };
+                return this.bot.sendMessage(chatId, '🗑️ *Kirim IP VPS yang ingin dihapus dari database.*', {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Batal', callback_data: 'main_menu' }]] }
+                });
+            }
+
+            if (!validateIp(ip)) {
+                return this.bot.sendMessage(chatId, '❌ Format IP tidak valid.\n\nContoh: `/delete 103.253.244.181`', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const keys = ApiKey.findByIp(ip);
+            if (!keys || keys.length === 0) {
+                return this.bot.sendMessage(chatId, `❌ Tidak ditemukan data untuk IP \`${ip}\`.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const result = ApiKey.deleteByIp(ip);
+            AuditLog.log('IP_DELETED', `IP: ${ip}, Rows deleted: ${result.changes}, By: ${msg.from.id}`);
+
+            return this.bot.sendMessage(chatId, `✅ *IP \`${ip}\` dan seluruh kuncinya berhasil dihapus permanen.*`, {
                 parse_mode: 'Markdown'
             });
         });
@@ -422,6 +530,88 @@ class TelegramBotHandler {
 
                 AuditLog.log('KEY_RENEWED', `IP: ${userState.ip}, Days: ${days}, Key: ${renewed.key}, By: ${chatId}`);
                 return this.bot.sendMessage(chatId, `✅ *Key berhasil diperpanjang*\n\n• IP: \`${renewed.ip_address}\`\n• Key: \`${renewed.key}\`\n• Berlaku sampai: ${formatDate(renewed.expires_at)}\n\nKey tetap sama dan dapat digunakan kembali.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            // Handle Change IP input
+            if (userState.step === 'waiting_change_old_ip') {
+                if (!validateIp(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format IP lama tidak valid. Contoh: `103.253.244.181`', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const key = ApiKey.findLatestByIp(text);
+                if (!key) {
+                    delete this.userStates[chatId];
+                    return this.bot.sendMessage(chatId, `❌ Tidak ditemukan lisensi untuk IP \`${text}\`.`, {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                userState.oldIp = text;
+                userState.step = 'waiting_change_new_ip';
+                return this.bot.sendMessage(chatId, `🔀 IP Lama: \`${text}\`\n\nSekarang kirim **IP VPS Baru** yang ingin digunakan:`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Batal', callback_data: 'main_menu' }]] }
+                });
+            }
+
+            if (userState.step === 'waiting_change_new_ip') {
+                if (!validateIp(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format IP baru tidak valid. Contoh: `103.253.244.182`', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                if (text === userState.oldIp) {
+                    return this.bot.sendMessage(chatId, '❌ IP baru tidak boleh sama dengan IP lama.');
+                }
+
+                const existingNew = ApiKey.findByIp(text).find(k => k.is_active && new Date(k.expires_at) > new Date());
+                if (existingNew) {
+                    delete this.userStates[chatId];
+                    return this.bot.sendMessage(chatId, `❌ IP baru \`${text}\` sudah memiliki lisensi aktif.`, {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const oldIp = userState.oldIp;
+                const updated = ApiKey.changeIp(oldIp, text);
+                delete this.userStates[chatId];
+
+                if (!updated) {
+                    return this.bot.sendMessage(chatId, '❌ Gagal mengubah IP. Silakan coba lagi.');
+                }
+
+                AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${text}, Key: ${updated.key}, By: ${chatId}`);
+                return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${text}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            // Handle Delete IP input
+            if (userState.step === 'waiting_delete_ip') {
+                if (!validateIp(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format IP tidak valid. Contoh: `103.253.244.181`', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const keys = ApiKey.findByIp(text);
+                if (!keys || keys.length === 0) {
+                    delete this.userStates[chatId];
+                    return this.bot.sendMessage(chatId, `❌ Tidak ditemukan data untuk IP \`${text}\`.`, {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const result = ApiKey.deleteByIp(text);
+                delete this.userStates[chatId];
+
+                AuditLog.log('IP_DELETED', `IP: ${text}, Rows deleted: ${result.changes}, By: ${chatId}`);
+                return this.bot.sendMessage(chatId, `✅ *IP \`${text}\` dan seluruh kuncinya berhasil dihapus permanen.*`, {
                     parse_mode: 'Markdown'
                 });
             }

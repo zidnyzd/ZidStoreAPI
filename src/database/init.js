@@ -95,6 +95,34 @@ const ApiKey = {
         return stmt.run(ip);
     },
 
+    deleteByIp(ip) {
+        // Delete related vpn_accounts first to satisfy foreign keys
+        const keys = db.prepare('SELECT id FROM api_keys WHERE ip_address = ?').all(ip);
+        if (keys.length > 0) {
+            const deleteVpn = db.prepare('DELETE FROM vpn_accounts WHERE key_id = ?');
+            for (const k of keys) {
+                deleteVpn.run(k.id);
+            }
+        }
+        const stmt = db.prepare('DELETE FROM api_keys WHERE ip_address = ?');
+        return stmt.run(ip);
+    },
+
+    changeIp(oldIp, newIp) {
+        const current = this.findLatestByIp(oldIp);
+        if (!current) {
+            return null;
+        }
+
+        const stmt = db.prepare(`
+            UPDATE api_keys
+            SET ip_address = ?
+            WHERE ip_address = ?
+        `);
+        stmt.run(newIp, oldIp);
+        return { ...current, ip_address: newIp };
+    },
+
     renewByIp(ip, days) {
         const current = this.findLatestByIp(ip);
         if (!current) {

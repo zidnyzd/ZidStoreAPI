@@ -30,6 +30,14 @@ module.exports = {
         return days > 0 && days <= 365;
     },
 
+    validateCustomKey(key) {
+        if (typeof key !== 'string') {
+            return false;
+        }
+        const customKeyRegex = /^[a-zA-Z0-9_-]{4,32}$/;
+        return customKeyRegex.test(key);
+    },
+
     isAdmin(telegramId) {
         const adminIds = process.env.TELEGRAM_ADMIN_ID?.split(',').map(id => id.trim()) || [];
         return adminIds.includes(String(telegramId));

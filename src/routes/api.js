@@ -5,6 +5,7 @@ const dbPath = path.join(__dirname, '..', 'database', 'init');
 const { ApiKey, AuditLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
 const { generateInstallCommand } = require(helperPath);
+const { validateCustomKey, validateIp } = require('../utils/helpers');
 
 const router = express.Router();
 
@@ -164,6 +165,39 @@ router.post('/api/register', (req, res) => {
         days: days,
         expires_at: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString(),
         install_url: `https://${process.env.DOMAIN || 'zds.web.id'}/?key=${newKey}`
+    });
+});
+
+// POST /api/change-key - Change API key for an IP
+router.post('/api/change-key', (req, res) => {
+    const { ip, new_key } = req.body;
+    const newKey = new_key;
+
+    if (!validateIp(ip)) {
+        return res.status(400).json({ error: 'Invalid IP address format' });
+    }
+
+    if (!validateCustomKey(new_key)) {
+        return res.status(400).json({ error: 'Invalid key format. Allowed: 4-32 alphanumeric characters, dash, or underscore' });
+    }
+
+    const result = ApiKey.changeKey(ip, new_key);
+
+    if (result.reason === 'NOT_FOUND') {
+        return res.status(404).json({ error: 'No key found for this IP' });
+    }
+
+    if (result.reason === 'DUPLICATE_KEY') {
+        return res.status(409).json({ error: 'Key already in use by another IP' });
+    }
+
+    AuditLog.log('KEY_CHANGED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${newKey}`, req.ip || req.connection.remoteAddress);
+
+    return res.status(200).json({
+        success: true,
+        ip,
+        old_key: result.oldKey,
+        new_key: newKey
     });
 });
 

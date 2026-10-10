@@ -3,7 +3,7 @@ const path = require('path');
 const dbPath = path.join(__dirname, '..', 'database', 'init');
 const { ApiKey, VpnAccount, AuditLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
-const { generateApiKey, validateIp, validateDays, formatDate, generateInstallCommand, isAdmin } = require(helperPath);
+const { generateApiKey, validateIp, validateDays, validateCustomKey, formatDate, generateInstallCommand, isAdmin } = require(helperPath);
 
 // Hanya user dengan ID ini yang diizinkan menggunakan bot (admin selalu diizinkan)
 const ALLOWED_USER_ID = 6200639382;
@@ -26,11 +26,14 @@ class TelegramBotHandler {
                 { text: '🔄 Renew IP', callback_data: 'renew_ip' }
             ],
             [
-                { text: '� Change IP', callback_data: 'change_ip' },
-                { text: '🗑️ Delete IP', callback_data: 'delete_ip' }
+                { text: '🔀 Change IP', callback_data: 'change_ip' },
+                { text: '✏️ Edit Key', callback_data: 'edit_key' }
             ],
             [
-                { text: '🔑 My Keys', callback_data: 'show_keys' },
+                { text: '🗑️ Delete IP', callback_data: 'delete_ip' },
+                { text: '🔑 My Keys', callback_data: 'show_keys' }
+            ],
+            [
                 { text: 'ℹ️ Help', callback_data: 'show_help' }
             ]
         ];
@@ -54,7 +57,7 @@ class TelegramBotHandler {
 
     sendHelp(chatId, isUserAdmin = false) {
         const help = '📖 *Bantuan*\n\n' +
-            'Gunakan tombol menu untuk mendaftarkan IP, memperpanjang key, mengganti IP, menghapus IP, atau melihat status key.\n\n' +
+            'Gunakan tombol menu untuk mendaftarkan IP, memperpanjang key, mengganti IP, mengedit key, menghapus IP, atau melihat status key.\n\n' +
             'Key yang expired tetap dapat diperpanjang dengan IP yang sama.';
         return this.sendMainMenu(chatId, help, isUserAdmin);
     }
@@ -164,6 +167,12 @@ class TelegramBotHandler {
                         parse_mode: 'Markdown',
                         reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
                     });
+                case 'edit_key':
+                    this.userStates[chatId] = { step: 'waiting_editkey_ip' };
+                    return this.bot.sendMessage(chatId, '✏️ *Kirim IP VPS yang ingin diubah key-nya.*', {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: [[{ text: '⬅️ Kembali', callback_data: 'main_menu' }]] }
+                    });
                 case 'delete_ip':
                     this.userStates[chatId] = { step: 'waiting_delete_ip' };
                     return this.bot.sendMessage(chatId, '🗑️ *Kirim IP VPS yang ingin dihapus dari database.*', {
@@ -227,14 +236,18 @@ class TelegramBotHandler {
     • Send \`/change\` or \`/change <OLD_IP> <NEW_IP>\`
     • Transfer existing license & key to new IP
 
-4️⃣ *Delete IP:*
+4️⃣ *Edit / Custom Key:*
+    • Send \`/editkey\` or \`/editkey <IP> <KEY_BARU>\`
+    • Change API key for an IP to a new custom key
+
+5️⃣ *Delete IP:*
     • Send \`/delete <IP>\`
     • Permanently delete IP & its keys from database
 
-5️⃣ *Check Key Status:*
+6️⃣ *Check Key Status:*
    • Send \`/key\` to see your active keys
 
-6️⃣ *Install on VPS:*
+7️⃣ *Install on VPS:*
    • Copy the install command from registration
    • Run it in your VPS terminal
    • Wait for installation to complete
@@ -328,6 +341,55 @@ class TelegramBotHandler {
             AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${newIp}, Key: ${updated.key}, By: ${msg.from.id}`);
 
             return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${newIp}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
+                parse_mode: 'Markdown'
+            });
+        });
+
+        // Edit Key command: /editkey or /editkey <IP> <KEY_BARU>
+        this.bot.onText(/\/editkey(?:\s+(\S+)\s+(\S+))?/, (msg, match) => {
+            const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+
+            const ip = match[1]?.trim();
+            const newKey = match[2]?.trim();
+
+            if (!ip || !newKey) {
+                this.userStates[chatId] = { step: 'waiting_editkey_ip' };
+                return this.bot.sendMessage(chatId, '✏️ *Kirim IP VPS yang ingin diubah key-nya.*', {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Batal', callback_data: 'main_menu' }]] }
+                });
+            }
+
+            if (!validateIp(ip)) {
+                return this.bot.sendMessage(chatId, '❌ Format IP tidak valid.\n\nContoh: `/editkey 103.253.244.181 custom-key-123`', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            if (!validateCustomKey(newKey)) {
+                return this.bot.sendMessage(chatId, '❌ Format key tidak valid. Key harus berupa 4-32 karakter alfanumerik, tanda minus (-), atau underscore (_).', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            const result = ApiKey.changeKey(ip, newKey);
+
+            if (result.reason === 'NOT_FOUND') {
+                return this.bot.sendMessage(chatId, `❌ Tidak ditemukan key untuk IP \`${ip}\`.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            if (result.reason === 'DUPLICATE_KEY') {
+                return this.bot.sendMessage(chatId, '❌ Key sudah digunakan oleh IP lain. Silakan gunakan key yang berbeda.', {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${newKey}, By: ${msg.from.id}`);
+
+            return this.bot.sendMessage(chatId, `✅ *Key berhasil diubah!*\n\n• IP VPS: \`${ip}\`\n• Key Lama: \`${result.oldKey}\`\n• Key Baru: \`${newKey}\`\n• Berlaku sampai: ${formatDate(result.data.expires_at)}\n\n⚠️ *Penting untuk VPS aktif:*\nJalankan perintah ini di VPS agar key sinkron:\n\`\`\`\necho "${newKey}" > /root/.key\n\`\`\``, {
                 parse_mode: 'Markdown'
             });
         });
@@ -587,6 +649,61 @@ class TelegramBotHandler {
 
                 AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${text}, Key: ${updated.key}, By: ${chatId}`);
                 return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${text}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
+                    parse_mode: 'Markdown'
+                });
+            }
+
+            // Handle Edit Key input
+            if (userState.step === 'waiting_editkey_ip') {
+                if (!validateIp(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format IP tidak valid. Contoh: `103.253.244.181`', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const key = ApiKey.findLatestByIp(text);
+                if (!key) {
+                    delete this.userStates[chatId];
+                    return this.bot.sendMessage(chatId, `❌ Tidak ditemukan key untuk IP \`${text}\`.`, {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                userState.ip = text;
+                userState.oldKey = key.key;
+                userState.step = 'waiting_editkey_new_key';
+                return this.bot.sendMessage(chatId, `✏️ IP: \`${text}\`\nKey Saat Ini: \`${key.key}\`\n\nKirim **Custom Key Baru** yang diinginkan:\n_(4-32 karakter alfanumerik, tanda minus, atau underscore)_`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: '⬅️ Batal', callback_data: 'main_menu' }]] }
+                });
+            }
+
+            if (userState.step === 'waiting_editkey_new_key') {
+                if (!validateCustomKey(text)) {
+                    return this.bot.sendMessage(chatId, '❌ Format key tidak valid. Key harus berupa 4-32 karakter alfanumerik, tanda minus (-), atau underscore (_).', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                const ip = userState.ip;
+                const result = ApiKey.changeKey(ip, text);
+                delete this.userStates[chatId];
+
+                if (result.reason === 'DUPLICATE_KEY') {
+                    return this.bot.sendMessage(chatId, '❌ Key sudah digunakan oleh IP lain. Silakan gunakan key yang berbeda.', {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                if (result.reason === 'NOT_FOUND') {
+                    return this.bot.sendMessage(chatId, `❌ Tidak ditemukan key untuk IP \`${ip}\`.`, {
+                        parse_mode: 'Markdown'
+                    });
+                }
+
+                AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${text}, By: ${chatId}`);
+
+                return this.bot.sendMessage(chatId, `✅ *Key berhasil diubah!*\n\n• IP VPS: \`${ip}\`\n• Key Lama: \`${result.oldKey}\`\n• Key Baru: \`${text}\`\n• Berlaku sampai: ${formatDate(result.data.expires_at)}\n\n⚠️ *Penting untuk VPS aktif:*\nJalankan perintah ini di VPS agar key sinkron:\n\`\`\`\necho "${text}" > /root/.key\n\`\`\``, {
                     parse_mode: 'Markdown'
                 });
             }

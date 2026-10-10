@@ -123,6 +123,28 @@ const ApiKey = {
         return { ...current, ip_address: newIp };
     },
 
+    changeKey(ip, newKey) {
+        const current = this.findLatestByIp(ip);
+        if (!current) {
+            return { success: false, reason: 'NOT_FOUND' };
+        }
+
+        const existingKey = db.prepare('SELECT id FROM api_keys WHERE key = ?').get(newKey);
+        if (existingKey && existingKey.id !== current.id) {
+            return { success: false, reason: 'DUPLICATE_KEY' };
+        }
+
+        const stmt = db.prepare('UPDATE api_keys SET key = ? WHERE id = ?');
+        stmt.run(newKey, current.id);
+
+        return {
+            success: true,
+            oldKey: current.key,
+            newKey: newKey,
+            data: { ...current, key: newKey }
+        };
+    },
+
     renewByIp(ip, days) {
         const current = this.findLatestByIp(ip);
         if (!current) {

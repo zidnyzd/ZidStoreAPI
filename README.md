@@ -161,6 +161,12 @@ POST /api/register
 Body: { "ip": "103.253.244.181", "days": 30 }
 ```
 
+### Change / Custom API Key
+```
+POST /api/change-key
+Body: { "ip": "103.253.244.181", "new_key": "custom-key-123" }
+```
+
 ### Get Statistics
 ```
 GET /api/stats
@@ -172,6 +178,10 @@ GET /api/stats
 |---------|-------------|--------|
 | `/start` | Welcome message | All |
 | `/register` | Register new IP | All |
+| `/renew <ip>` | Renew IP key expiry | All |
+| `/change <old_ip> <new_ip>` | Transfer key/license to new IP | All |
+| `/editkey <ip> <new_key>` | Change auth key to custom key | All |
+| `/delete <ip>` | Delete IP from database | All |
 | `/key` | Check key status | All |
 | `/help` | Help message | All |
 | `/list` | List all IPs | Admin |

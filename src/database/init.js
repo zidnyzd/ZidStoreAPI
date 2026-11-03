@@ -76,6 +76,20 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_install_logs_ip ON install_logs(ip);
     CREATE INDEX IF NOT EXISTS idx_install_logs_event_status ON install_logs(event, status);
     CREATE INDEX IF NOT EXISTS idx_install_logs_created_at ON install_logs(created_at);
+
+    CREATE TABLE IF NOT EXISTS slowdns_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sub TEXT NOT NULL,
+        zone TEXT NOT NULL,
+        key_id INTEGER NOT NULL,
+        install_domain TEXT,
+        ip TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(sub, zone)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_slowdns_domains_key ON slowdns_domains(key_id);
 `);
 
 // Helper functions
@@ -265,4 +279,21 @@ const InstallLog = {
     }
 };
 
-module.exports = { db, ApiKey, VpnAccount, AuditLog, InstallLog };
+const SlowdnsDomain = {
+    findBySub(sub, zone) {
+        const stmt = db.prepare('SELECT * FROM slowdns_domains WHERE sub = ? AND zone = ?');
+        return stmt.get(sub, zone);
+    },
+
+    create({ sub, zone, key_id, install_domain, ip }) {
+        const stmt = db.prepare('INSERT INTO slowdns_domains (sub, zone, key_id, install_domain, ip) VALUES (?, ?, ?, ?, ?)');
+        return stmt.run(sub, zone, key_id, install_domain || null, ip || null);
+    },
+
+    updateOwnerInfo(id, { ip, install_domain }) {
+        const stmt = db.prepare('UPDATE slowdns_domains SET ip = COALESCE(?, ip), install_domain = COALESCE(?, install_domain), updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+        return stmt.run(ip === undefined ? null : ip, install_domain === undefined ? null : install_domain, id);
+    }
+};
+
+module.exports = { db, ApiKey, VpnAccount, AuditLog, InstallLog, SlowdnsDomain };

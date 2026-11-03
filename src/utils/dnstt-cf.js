@@ -1,8 +1,11 @@
 'use strict';
 
+const crypto = require('crypto');
 const DEFAULT_ZONE = 'zdnstt.web.id';
 const API_BASE = 'https://api.cloudflare.com/client/v4';
 const REQUEST_TIMEOUT_MS = 15000;
+
+const LABEL_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 let cachedZoneId = null;
 
@@ -103,6 +106,127 @@ async function updateRecord(fetchImpl, token, zoneId, recordId, record) {
     await cfJson(fetchImpl, 'PATCH', path, record, token);
 }
 
+// Baca daftar record Cloudflare untuk satu nama + tipe (A/NS).
+// Dipakai route untuk memeriksa keberadaan record tanpa menduplikasi logika CF.
+async function listDnsRecords({ name, type, zone, fetchImpl }) {
+    const fn = fetchImpl || (typeof globalThis.fetch !== 'undefined' ? globalThis.fetch : null);
+    if (!fn) {
+        const err = new Error('fetchImpl tidak tersedia');
+        err.code = 'no_fetch';
+        throw err;
+    }
+    const { token } = loadEnv();
+    const targetZone = zone || process.env.CF_DNSTT_ZONE || DEFAULT_ZONE;
+    const zoneId = await resolveZoneId(fn, token, targetZone);
+    return listRecords(fn, token, zoneId, name, type);
+}
+
+// Sufiks acak untuk fallback tabrakan: huruf kecil + angka, panjang default 4.
+function randomSubSuffix(length = 4) {
+    const out = [];
+    for (let i = 0; i < length; i++) {
+        out.push(LABEL_ALPHABET[crypto.randomInt(0, LABEL_ALPHABET.length)]);
+    }
+    return out.join('');
+}
+
+// Gabung base + sufiks fallback tanpa melanggar batas label DNS (63 karakter).
+function buildFallbackSub(base, suffix, maxLength = 63) {
+    const tail = '-' + suffix;
+    const room = maxLength - tail.length;
+    if (room < 1) return null;
+    const head = base.slice(0, room).replace(/-+$/, '');
+    if (!head) return null;
+    return head + tail;
+}
+
+// Periksa kepemilikan satu sub pada satu zona.
+// state: 'new' (belum ada), 'own' (pemilik sama), 'claim' (warisan CF dengan IP pemanggil), 'conflict' (milik orang lain).
+async function inspectSlowdnsOwnership({ sub, zone, ip, keyId, fetchImpl, model, listRecordsFn }) {
+    const list = listRecordsFn || ((opts) => listDnsRecords(opts));
+    const row = model.findBySub(sub, zone);
+    if (row) {
+        if (Number(row.key_id) === Number(keyId)) {
+            return { state: 'own', record: row };
+        }
+        return { state: 'conflict', reason: 'db_owner' };
+    }
+
+    const nsHost = 'ns-' + sub + '.' + zone;
+    const tunnel = sub + '.' + zone;
+
+    const aRecords = await list({ name: nsHost, type: 'A', zone, fetchImpl });
+    if (aRecords && aRecords.length > 0) {
+        if (aRecords[0].content === ip) {
+            return { state: 'claim', record: null };
+        }
+        return { state: 'conflict', reason: 'cf_a_other_ip' };
+    }
+
+    const nsRecords = await list({ name: tunnel, type: 'NS', zone, fetchImpl });
+    if (nsRecords && nsRecords.length > 0 && nsRecords[0].content !== nsHost) {
+        return { state: 'conflict', reason: 'cf_ns_mismatch' };
+    }
+
+    return { state: 'new', record: null };
+}
+
+// Keputusan alur register SlowDNS.
+// Jalur manual (explicit) menolak tabrakan, jalur otomatis memakai suffix acak pendek.
+async function resolveSlowdnsSub({
+    sub,
+    zone,
+    ip,
+    keyId,
+    explicit,
+    fetchImpl,
+    model,
+    listRecordsFn,
+    maxAttempts = 5,
+    suffixLength = 4,
+    randomSuffixFn
+}) {
+    const requestedSub = sub;
+    const ownership = await inspectSlowdnsOwnership({ sub, zone, ip, keyId, fetchImpl, model, listRecordsFn });
+
+    if (ownership.state !== 'conflict') {
+        return {
+            status: 'ok',
+            sub,
+            requestedSub,
+            fallback: false,
+            state: ownership.state,
+            record: ownership.record
+        };
+    }
+
+    if (explicit) {
+        return { status: 'conflict', sub, requestedSub, fallback: false, reason: ownership.reason };
+    }
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const suffix = randomSuffixFn ? randomSuffixFn(suffixLength) : randomSubSuffix(suffixLength);
+        const candidate = buildFallbackSub(sub, suffix);
+        if (!candidate) continue;
+
+        const candidateOwnership = await inspectSlowdnsOwnership({
+            sub: candidate, zone, ip, keyId, fetchImpl, model, listRecordsFn
+        });
+        if (candidateOwnership.state === 'conflict') continue;
+
+        return {
+            status: 'ok',
+            sub: candidate,
+            requestedSub,
+            fallback: true,
+            state: candidateOwnership.state,
+            record: candidateOwnership.record
+        };
+    }
+
+    return { status: 'conflict', sub, requestedSub, fallback: false, reason: 'fallback_exhausted' };
+}
+
 async function ensureSlowdnsRecords({ sub, ip, fetchImpl }) {
     const fn = fetchImpl || (typeof globalThis.fetch !== 'undefined' ? globalThis.fetch : null);
     if (!fn) {
@@ -176,5 +300,10 @@ async function ensureSlowdnsRecords({ sub, ip, fetchImpl }) {
 
 module.exports = {
     ensureSlowdnsRecords,
-    DEFAULT_ZONE
+    DEFAULT_ZONE,
+    listDnsRecords,
+    randomSubSuffix,
+    buildFallbackSub,
+    inspectSlowdnsOwnership,
+    resolveSlowdnsSub
 };

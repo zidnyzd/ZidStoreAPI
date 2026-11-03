@@ -16,14 +16,14 @@ Operator atau klien menerima 403 "Error: IP not authorized for this key" meskipu
 
 Solusi yang diimplementasikan:
 
-- app.set('trust proxy', 1) di src/index.js:21.
-- deploy.sh menambahkan proxy_set_header X-Real-IP \$remote_addr dan X-Forwarded-For \$proxy_add_x_forwarded_for di deploy.sh:214-215 dan deploy.sh:305-306.
-- request logging mencatat req.ip ke console (src/index.js:51).
+- app.set('trust proxy', 1) di 21.
+- deploy.sh menambahkan proxy_set_header X-Real-IP \$remote_addr dan X-Forwarded-For \$proxy_add_x_forwarded_for di deploy.sh:208-209 dan deploy.sh:299-300.
+- request logging mencatat req.ip ke console (51).
 
 **Cara Menghindari / Mengatasi**
 
 - Pastikan deploy.sh atau konfigurasi Nginx Anda memasang header X-Real-IP.
-- Verifikasi req.ip dari edge VPS bukan 127.0.0.1 dengan meninjau console log di src/index.js:51.
+- Verifikasi req.ip dari edge VPS bukan 127.0.0.1 dengan meninjau console log di 51.
 - Jika menggunakan load balancer tambahan, naikkan angka trust proxy sesuai hop.
 
 ## Jebakan 2: Parsing Output CLI Menghasilkan Error JSON
@@ -59,13 +59,13 @@ Solusi di kode:
 
 **Penyebab Teknis**
 
-- foreign_keys ON membuat sqlite menolak DELETE pada parent jika masih ada child vpn_accounts (src/database/init.js:17-17).
-- Tidak ada ON DELETE CASCADE di skema (src/database/init.js:42-42).
-- deleteByIp sudah berjalan dua tahap: hapus vpn_accounts per key_id, lalu hapus api_keys (src/database/init.js:98-109).
+- foreign_keys ON membuat sqlite menolak DELETE pada parent jika masih ada child vpn_accounts (17-17).
+- Tidak ada ON DELETE CASCADE di skema (42-42).
+- deleteByIp sudah berjalan dua tahap: hapus vpn_accounts per key_id, lalu hapus api_keys (133-144).
 
 Solusi yang sudah ada di kode:
 
-- deleteByIp mengambil id dari api_keys berdasarkan ip_address, kemudian hapus vpn_accounts yang refer ke id tersebut sebelum menghapus baris api_keys (src/database/init.js:98-109).
+- deleteByIp mengambil id dari api_keys berdasarkan ip_address, kemudian hapus vpn_accounts yang refer ke id tersebut sebelum menghapus baris api_keys (133-144).
 
 **Cara Menghindari / Mengatasi**
 
@@ -101,7 +101,7 @@ Skrip menu atau ft tidak mendeteksi expired meskipun domain lisensi sudah expire
 
 **Penyebab Teknis**
 
-- resources/src-bin/menu dan ft membaca kunci dari /root/.key dan memanggil https://zds.web.id/api/exp?key= secara langsung (resources/src-bin/menu:4-5).
+- resources/src-bin/menu dan ft membaca kunci dari /root/.key dan memanggil https://zds.web.id/api/exp?key= secara langsung (4-5).
 - /etc/hosts di VPS pelanggan bisa mengarahkan zds.web.id ke 127.0.0.1 atau IP lain yang menyediakan halaman palsu yang selalu mengembalikan tanggal yang tidak valid.
 - Jika bypass berhasil, skrip menganggap lisensi aktif selamanya.
 
@@ -112,6 +112,25 @@ Skrip menu atau ft tidak mendeteksi expired meskipun domain lisensi sudah expire
 - Pastikan zds.web.id menggunakan DNSSEC dan resolusi DNS tepercaya di VPS pelanggan.
 - Monitoring: catat IP akses edge API, dan tambahkan log jika expired key tetap bisa mengunduh skrip.
 
+## Jebakan 6: Register SlowDNS 502 cf_error / 500 internal_error
+
+**Gejala**
+
+Panggilan POST /api/slowdns/register (menu Change SlowDNS domain atau fallback domain installer) gagal dengan 502 `cf_error` atau 500 `internal_error`.
+
+**Penyebab Teknis**
+
+- Env Cloudflare tidak lengkap (`CF_DNSTT_TOKEN` atau `CF_ACCOUNT_ID` kosong) -> 500 `internal_error`.
+- Token Cloudflare salah / tidak punya izin zona -> 502 `cf_error`.
+- Gangguan Cloudflare atau timeout pemanggilan API -> 502 `cf_error`.
+
+**Penanganan**
+
+- Periksa env `CF_DNSTT_TOKEN`, `CF_ACCOUNT_ID` (dan `CF_DNSTT_ZONE` / `CF_ZONE_ID` bila dipakai).
+- Pastikan token memiliki izin menulis DNS zona tujuan.
+- Bila 502 bersifat sementara, ulangi panggilan setelah jeda; mode fallback domain tetap fail-open, instalasi tidak terhenti.
+- Bila balasan 409 `sub_taken`: subdomain sudah dipakai pemilik lain; pada jalur manual pilih subdomain lain, pada jalur otomatis installer memakai fallback `<sub>-xxxx` (acak).
+
 ## Rujukan Berkas:baris
 
 | Berkas | Baris | Rujukan |
@@ -119,17 +138,17 @@ Skrip menu atau ft tidak mendeteksi expired meskipun domain lisensi sudah expire
 | src/index.js | 20-21 | trust proxy |
 | src/index.js | 48-53 | logging req.ip |
 | src/index.js | 77-81 | audit SERVER_ERROR |
-| src/routes/api.js | 76-102 | GET /api/key validasi IP |
-| src/routes/api.js | 105-125 | GET /api/exp |
+| src/routes/api.js | 208-234 | GET /api/key validasi IP |
+| src/routes/api.js | 237-257 | GET /api/exp |
 | src/database/init.js | 17 | pragma foreign_keys |
 | src/database/init.js | 42 | FOREIGN KEY tanpa ON DELETE CASCADE |
-| src/database/init.js | 98-109 | deleteByIp dua tahap |
+| src/database/init.js | 133-144 | deleteByIp dua tahap |
 | resources/bot/api.js | 9-16 | stripAnsi |
 | resources/bot/api.js | 18-33 | extractJson |
 | resources/bot/api.js | 40-166 | buildTrialResponse fallback |
 | resources/bot/api.js | 246-253 | checkPassword |
 | resources/src-bin/menu | 4-5 | validasi lisensi via /api/exp |
 | resources/src-bin/ft | 4-5 | validasi lisensi via /api/exp |
-| deploy.sh | 214-215 | Nginx X-Real-IP, X-Forwarded-For |
-| deploy.sh | 305-306 | Nginx HTTPS headers |
-| deploy.sh | 314-318 | Block sensitive files |
+| deploy.sh | 208-209 | Nginx X-Real-IP, X-Forwarded-For |
+| deploy.sh | 299-300 | Nginx HTTPS headers |
+| deploy.sh | 307-312 | Block sensitive files |

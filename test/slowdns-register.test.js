@@ -2,6 +2,7 @@
 
 const assert = require('node:assert');
 const test = require('node:test');
+const { beforeEach } = require('node:test');
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -25,6 +26,15 @@ const bodyParser = require('body-parser');
 
 const CLIENT_IP = '127.0.0.1';
 const ZONE = 'zdnstt.web.id';
+
+// Pastikan setiap tes rute dimulai dengan tabel kepemilikan kosong (tidak terpengaruh tes sebelumnya).
+beforeEach(async () => {
+    try {
+        db.prepare('DELETE FROM slowdns_domains').run();
+    } catch (e) {
+        // tabel mungkin belum ada di file DB yang lama
+    }
+});
 
 function insertKey(key, ip, expiresAt) {
     db.prepare('DELETE FROM api_keys WHERE key = ?').run(key);
@@ -51,8 +61,14 @@ function makeApp(stub) {
     const app = express();
     app.use(bodyParser.json());
     dnsCf.ensureSlowdnsRecords = stub !== undefined ? stub : defaultStub;
+    // Default: tidak ada record CF (kepemilikan bernilai 'new') agar tes route tanpa jaringan.
+    dnsCf.listDnsRecords = defaultListRecords;
     app.use('/', apiRouter);
     return app;
+}
+
+function defaultListRecords() {
+    return Promise.resolve([]);
 }
 
 async function defaultStub() {
@@ -379,7 +395,174 @@ test('route: audit log tertulis ke database', async () => {
     assert.strictEqual(rows[0].ip_address, CLIENT_IP);
 });
 
+// ---- Tes kebijakan tabrakan subdomain SlowDNS (baru) ----
+
+function setupConflict(keys) {
+    // keys: { key, ip, own, sub, content? }, ip digunakan untuk semua insertKey
+    const keyMap = {};
+    for (const k of keys) {
+        insertKey(k.key, k.ip || CLIENT_IP);
+        keyMap[k.key] = db.prepare('SELECT * FROM api_keys WHERE key = ?').get(k.key);
+    }
+    return keyMap;
+}
+
+test('own: pemilik sama -> tidak fallback, ensure dipanggil, update ip', async () => {
+    insertKey('key-own', CLIENT_IP);
+    const { SlowdnsDomain } = require('../src/database/init');
+    const owner = db.prepare('SELECT * FROM api_keys WHERE key = ?').get('key-own');
+    SlowdnsDomain.create({ sub: 'contoh', zone: ZONE, key_id: owner.id, install_domain: null, ip: '1.1.1.1' });
+
+    let ensureCalled = 0;
+    const app = makeApp(async () => {
+        ensureCalled++;
+        return { created: { a: false, ns: false }, updated: { a: true, ns: false } };
+    });
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-own', { domain: 'contoh.zds.web.id' });
+    assert.strictEqual(res.status, 200);
+    const body = jsonBody(res);
+    assert.strictEqual(body.fallback, false);
+    assert.strictEqual(body.requested_sub, 'contoh');
+    assert.strictEqual(ensureCalled, 1);
+    const row = SlowdnsDomain.findBySub('contoh', ZONE);
+    assert.ok(row);
+    assert.strictEqual(row.ip, CLIENT_IP);
+});
+
+test('conflict explicit -> 409 sub_taken', async () => {
+    const keyA = insertConflictKey('key-a', CLIENT_IP, null);
+    const keyB = insertConflictKey('key-b', CLIENT_IP, null);
+    const { SlowdnsDomain } = require('../src/database/init');
+    SlowdnsDomain.create({ sub: 'ambil', zone: ZONE, key_id: keyA.id, install_domain: null, ip: '10.0.0.1' });
+    const app = makeApp(defaultStub);
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-b', { domain: 'x.zds.web.id', sub: 'ambil' });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual(jsonBody(res).error, 'sub_taken');
+});
+
+test('conflict otomatis -> fallback format ^[a-z0-9]+-[a-z0-9]{4}$, requested_sub benar, fallback=true', async () => {
+    const keyA = insertConflictKey('key-a', CLIENT_IP, null);
+    const keyB = insertConflictKey('key-b', CLIENT_IP, null);
+    const { SlowdnsDomain } = require('../src/database/init');
+    SlowdnsDomain.create({ sub: 'ambil', zone: ZONE, key_id: keyA.id, install_domain: null, ip: '10.0.0.1' });
+    let capturedSub = null;
+    const app = makeApp(async ({ sub }) => {
+        capturedSub = sub;
+        return { created: { a: true, ns: true }, updated: { a: false, ns: false } };
+    });
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-b', { domain: 'ambil.zds.web.id' });
+    assert.strictEqual(res.status, 200);
+    const body = jsonBody(res);
+    assert.strictEqual(body.requested_sub, 'ambil');
+    assert.strictEqual(body.fallback, true);
+    assert.match(body.sub, /^[a-z0-9]+-[a-z0-9]{4}$/);
+    assert.strictEqual(capturedSub, body.sub);
+});
+
+test('fallback loop: kandidat pertama "terpakai" disuruh dilewati, pilih berikutnya', async () => {
+    const keyA = insertConflictKey('key-a', CLIENT_IP, null);
+    const keyB = insertConflictKey('key-b', CLIENT_IP, null);
+    const { SlowdnsDomain } = require('../src/database/init');
+    SlowdnsDomain.create({ sub: 'ambil', zone: ZONE, key_id: keyA.id, install_domain: null, ip: '10.0.0.1' });
+    // Kandidat pertama (ambil-aaaa) dibuat milik key-a -> lewati, kandidat kedua (ambil-bbbb) dipakai.
+    const realResolve = dnsCf.resolveSlowdnsSub;
+    let call = 0;
+    dnsCf.resolveSlowdnsSub = async (args) => {
+        call++;
+        if (call === 1) {
+            SlowdnsDomain.create({ sub: 'ambil-aaaa', zone: ZONE, key_id: keyA.id, install_domain: null, ip: '10.0.0.1' });
+        }
+        return realResolve.call(dnsCf, args);
+    };
+    let capturedSub = null;
+    const app = makeApp(async ({ sub }) => {
+        capturedSub = sub;
+        return { created: { a: true, ns: true }, updated: { a: false, ns: false } };
+    });
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-b', { domain: 'ambil.zds.web.id' });
+    dnsCf.resolveSlowdnsSub = realResolve;
+    assert.strictEqual(res.status, 200);
+    const body = jsonBody(res);
+    assert.strictEqual(body.fallback, true);
+    assert.notStrictEqual(body.sub, 'ambil-aaaa');
+    assert.match(body.sub, /^[a-z0-9]+-[a-z0-9]{4}$/);
+});
+
+test('claim warisan (A content == ip)', async () => {
+    const keyB = insertConflictKey('key-b', CLIENT_IP, null);
+    const { SlowdnsDomain } = require('../src/database/init');
+    const kB = db.prepare('SELECT * FROM api_keys WHERE key = ?').get('key-b');
+    db.prepare('DELETE FROM slowdns_domains WHERE sub = ? AND zone = ?').run('warisan', ZONE);
+    // override listDnsRecords agar route hanya lihat A milik warisan dengan isi sama ip
+    dnsCf.listDnsRecords = async (opts) => {
+        if (opts.type === 'A') {
+            return [{ id: 'r-a', content: CLIENT_IP, name: opts.name, type: 'A' }];
+        }
+        return [];
+    };
+    const app = makeApp(async ({ sub }) => {
+        return { created: { a: false, ns: false }, updated: { a: false, ns: false } };
+    });
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-b', { domain: 'warisan.zds.web.id' });
+    dnsCf.listDnsRecords = require('../src/utils/dnstt-cf').listDnsRecords;
+    assert.strictEqual(res.status, 200);
+    const body = jsonBody(res);
+    assert.strictEqual(body.sub, 'warisan');
+    assert.strictEqual(body.fallback, false);
+    const row = SlowdnsDomain.findBySub('warisan', ZONE);
+    assert.ok(row);
+    assert.strictEqual(row.key_id, kB.id);
+});
+
+test('panjang 63 + suffix -> hasil <= 63', async () => {
+    const keyA = insertConflictKey('key-a', CLIENT_IP, null);
+    const keyB = insertConflictKey('key-b', CLIENT_IP, null);
+    const { SlowdnsDomain } = require('../src/database/init');
+    SlowdnsDomain.create({ sub: 'a'.repeat(61), zone: ZONE, key_id: keyA.id, install_domain: null, ip: '10.0.0.1' });
+    const dns = require('../src/utils/dnstt-cf');
+    const orig = dns.randomSubSuffix;
+    dns.randomSubSuffix = () => 'abcd';
+    let capturedSub = null;
+    const app = makeApp(async ({ sub }) => {
+        capturedSub = sub;
+        return { created: { a: true, ns: true }, updated: { a: false, ns: false } };
+    });
+    const res = await req(app, 'POST', '/api/slowdns/register?key=key-b', { domain: 'a'.repeat(61) + '.zds.web.id' });
+    dns.randomSubSuffix = orig;
+    assert.strictEqual(res.status, 200);
+    const body = jsonBody(res);
+    assert.ok(body.sub.length <= 63);
+    assert.match(body.sub, /-[a-z0-9]{4}$/);
+});
+
+test('model smoke test dengan DB sementara: buat-baca-update; hapus file setelah selesai', async () => {
+    const testDbPath = '/tmp/slowdns-model-test.db';
+    if (fs.existsSync(testDbPath)) fs.rmSync(testDbPath);
+    db.prepare('DELETE FROM slowdns_domains').run();
+    const SlowdnsDomainSmoke = require('../src/database/init').SlowdnsDomain;
+    const r = SlowdnsDomainSmoke.create({ sub: 'tes', zone: ZONE, key_id: 1, install_domain: 'old.zds.web.id', ip: '1.1.1.1' });
+    const row = SlowdnsDomainSmoke.findBySub('tes', ZONE);
+    assert.ok(row);
+    assert.strictEqual(row.ip, '1.1.1.1');
+    SlowdnsDomainSmoke.updateOwnerInfo(row.id, { ip: '2.2.2.2', install_domain: 'new.zds.web.id' });
+    const row2 = SlowdnsDomainSmoke.findBySub('tes', ZONE);
+    assert.strictEqual(row2.ip, '2.2.2.2');
+    assert.strictEqual(row2.install_domain, 'new.zds.web.id');
+    if (fs.existsSync(testDbPath)) fs.rmSync(testDbPath);
+});
+
+function insertConflictKey(key, ip, sub) {
+    const row = db.prepare('SELECT * FROM api_keys WHERE key = ?').get(key);
+    if (!row) {
+        insertKey(key, ip);
+        return db.prepare('SELECT * FROM api_keys WHERE key = ?').get(key);
+    }
+    return row;
+}
+
 // restore real implementation for hygiene
 dnsCf.ensureSlowdnsRecords = require('../src/utils/dnstt-cf').ensureSlowdnsRecords;
+dnsCf.listDnsRecords = require('../src/utils/dnstt-cf').listDnsRecords;
+dnsCf.resolveSlowdnsSub = require('../src/utils/dnstt-cf').resolveSlowdnsSub;
 
 if (fs.existsSync(TEST_DB)) fs.rmSync(TEST_DB);

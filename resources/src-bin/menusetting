@@ -350,6 +350,16 @@ if [ $status_code -eq 200 ]; then
                 fi
             fi
             api_resp=$(curl -4 -s -m 25 -X POST "https://zds.web.id/api/slowdns/register" -H "X-API-Key: $(cat /root/.key)" -H "Content-Type: application/json" -d "{\"domain\":\"$inst_domain\",\"sub\":\"$new_sub\"}" 2>/dev/null)
+            api_err=$(printf '%s' "$api_resp" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            if [ -n "$api_err" ]; then
+                if [ "$api_err" = "sub_taken" ]; then
+                    echo -e "  ${red}Subdomain sudah dipakai VPS lain; silakan pilih subdomain lain.${neutral}"
+                else
+                    echo -e "  ${red}Sinkron Cloudflare gagal ($api_err); perubahan dibatalkan.${neutral}"
+                fi
+                read -n 1 -s -r -p "Press any key to return to the menu"
+                return
+            fi
             tunnel=$(printf '%s' "$api_resp" | sed -n 's/.*"tunnel_domain"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
             ns_host=$(printf '%s' "$api_resp" | sed -n 's/.*"ns_host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 

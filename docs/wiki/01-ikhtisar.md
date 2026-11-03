@@ -80,9 +80,9 @@ Pelanggan menggunakan endpoint API untuk memvalidasi key dan mendapatkan install
 
 | Berkas | Baris Penting |
 |--------|---------------|
-| src/index.js | 16-18 port dan aplikasi; 20-21 trust proxy; 23-38 rate limiter; 47-53 logging; 83-112 startup; 114-125 shutdown |
-| src/routes/api.js | 13-45 download script; 48-73 validate; 76-102 key plain; 105-125 exp; 128-169 register; 172-202 change-key; 205-221 stats; 224-253 resources |
-| src/database/init.js | 5 DB_PATH; 15-17 pragma; 20-58 skema dan index; 61-175 ApiKey; 177-207 VpnAccount; 209-214 AuditLog |
+| src/index.js | 16-18 port dan aplikasi; 20-21 trust proxy; 23-38 rate limiter; 47-53 logging; 84-123 startup; 126-137 shutdown |
+| src/routes/api.js | 145-177 download script; 180-205 validate; 208-234 key plain; 237-257 exp; 260-301 register; 304-335 change-key; 337-470 slowdns register; 473-489 stats; 492-521 resources |
+| src/database/init.js | 5 DB_PATH; 15-17 pragma; 20-93 skema dan index; 96-210 ApiKey; 212-242 VpnAccount; 244-249 AuditLog; 251-280 InstallLog; 282-297 SlowdnsDomain |
 | src/bot/telegram.js | 9 ALLOWED_USER_ID; 11-13 isAuthorized; 66-102 sendPaginated; 136-208 callback_query |
 | src/utils/helpers.js | 2-10 generateApiKey; 12-18 formatDate; 20-22 generateInstallCommand; 24-27 validateIp; 29-31 validateDays; 33-39 validateCustomKey; 41-44 isAdmin |
 | resources/bot/api.js | 9 ansiRegex; 11-16 stripAnsi; 18-33 extractJson; 246-259 checkPassword; 1693-1696 PORT |

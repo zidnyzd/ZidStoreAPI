@@ -20,7 +20,7 @@ Internet
    |--- Telegram Bot (polling node-telegram-bot-api)
    |
    +-- GET /?key= ... 302 -> https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel
-   +-- /api/validate, /api/key, /api/exp, /api/register, /api/change-key, /api/stats, /resources/*
+   +-- /api/validate, /api/key, /api/exp, /api/register, /api/change-key, /api/slowdns/register, /api/stats, /resources/*
 
 [ Edge Node VPS Pelanggan ]
    | port 5888 (edge API, bridge HTTPS)
@@ -56,24 +56,27 @@ Internet
 |--------|-------|---------|
 | src/index.js | 16-18 | app, PORT |
 | src/index.js | 20-21 | app.set trust proxy 1 |
-| src/index.js | 23-38 | generalLimiter, apiLimiter |
-| src/index.js | 47-53 | request logging ke console |
-| src/index.js | 83-112 | listen, startup cleanup expired, bot start, audit |
-| src/index.js | 114-125 | SIGTERM, SIGINT graceful shutdown |
-| src/routes/api.js | 13-45 | GET /?key= validasi, increment, redirect 302 |
-| src/routes/api.js | 48-73 | GET /api/validate JSON response |
-| src/routes/api.js | 76-102 | GET /api/key validasi strict IP matching |
-| src/routes/api.js | 105-125 | GET /api/exp masa aktif teks |
-| src/routes/api.js | 128-169 | POST /api/register generate key, audit, duplikasi cek |
-| src/routes/api.js | 172-202 | POST /api/change-key edit key kustom |
-| src/routes/api.js | 205-221 | GET /api/stats prepared statements agregat |
-| src/routes/api.js | 224-253 | GET /resources/* path traversal protection |
+| src/index.js | 24-38 | generalLimiter, apiLimiter |
+| src/index.js | 48-53 | request logging ke console |
+| src/index.js | 84-123 | listen, startup cleanup expired, bot start, audit |
+| src/index.js | 126-137 | SIGTERM, SIGINT graceful shutdown |
+| src/routes/api.js | 145-177 | GET /?key= validasi, increment, redirect 302 |
+| src/routes/api.js | 180-205 | GET /api/validate JSON response |
+| src/routes/api.js | 208-234 | GET /api/key validasi strict IP matching |
+| src/routes/api.js | 237-257 | GET /api/exp masa aktif teks |
+| src/routes/api.js | 260-301 | POST /api/register generate key, audit, duplikasi cek |
+| src/routes/api.js | 304-335 | POST /api/change-key edit key kustom |
+| src/routes/api.js | 473-489 | GET /api/stats prepared statements agregat |
+| src/routes/api.js | 492-521 | GET /resources/* path traversal protection |
+| src/routes/api.js | 337-470 | POST /api/slowdns/register otomasi subdomain SlowDNS |
+| src/utils/dnstt-cf.js | 1-308 | Modul Cloudflare SlowDNS |
 | src/database/init.js | 5-11 | DB_PATH, mkdir recursive |
 | src/database/init.js | 15-17 | pragma WAL, foreign_keys ON |
-| src/database/init.js | 20-58 | CREATE TABLE dan CREATE INDEX |
-| src/database/init.js | 61-175 | ApiKey model |
-| src/database/init.js | 177-207 | VpnAccount model |
-| src/database/init.js | 209-214 | AuditLog model |
+| src/database/init.js | 20-93 | CREATE TABLE dan CREATE INDEX |
+| src/database/init.js | 96-210 | ApiKey model |
+| src/database/init.js | 212-242 | VpnAccount model |
+| src/database/init.js | 244-249 | AuditLog model |
+| src/database/init.js | 282-297 | SlowdnsDomain model |
 | src/bot/telegram.js | 8-13 | ALLOWED_USER_ID, isAuthorized |
 | src/bot/telegram.js | 65-102 | sendPaginated |
 | src/bot/telegram.js | 136-208 | setupHandlers callback_query |

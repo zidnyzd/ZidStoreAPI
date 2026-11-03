@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const dbPath = path.join(__dirname, '..', 'database', 'init');
-const { ApiKey, AuditLog, InstallLog } = require(dbPath);
+const { ApiKey, AuditLog, InstallLog, SlowdnsDomain } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
 const { generateInstallCommand, maskKey } = require(helperPath);
 const { validateCustomKey, validateIp } = require('../utils/helpers');
@@ -333,8 +333,8 @@ router.post('/api/change-key', (req, res) => {
     });
 });
 
-// POST /api/slowdns/register - Create Cloudflare DNS records for SlowDNS (idempotent)
-router.post('/api/slowdns/register', (req, res) => {
+// POST /api/slowdns/register - Register SlowDNS subdomain with collision policy
+async function slowdnsRegister(req, res) {
     const key = req.get('X-API-Key') || req.query.key;
     const clientIp = req.ip || req.connection.remoteAddress;
 
@@ -361,7 +361,8 @@ router.post('/api/slowdns/register', (req, res) => {
         return res.status(400).json({ error: 'invalid_domain' });
     }
 
-    let sub = (typeof body.sub === 'string' && body.sub.trim() !== '') ? body.sub.trim() : domain.split('.')[0];
+    const explicit = typeof body.sub === 'string' && body.sub.trim() !== '';
+    let sub = explicit ? body.sub.trim() : domain.split('.')[0];
     sub = String(sub).toLowerCase();
 
     if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(sub)) {
@@ -378,36 +379,95 @@ router.post('/api/slowdns/register', (req, res) => {
     }
 
     const zone = process.env.CF_DNSTT_ZONE || 'zdnstt.web.id';
-    const tunnel = sub + '.' + zone;
-    const nsHost = 'ns-' + sub + '.' + zone;
+    const requestedSub = sub;
 
     let ip = apiKey.ip_address || clientIp;
     if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
         ip = ip.substring(7);
     }
 
-    return dnsCf.ensureSlowdnsRecords({ sub, ip, fetchImpl: (typeof fetch !== 'undefined' ? fetch : undefined) })
-        .then(result => {
-            AuditLog.log('SLOWDNS_REGISTER', 'zone=' + zone + ' sub=' + sub + ' ip=' + ip + ' key=' + maskKey(key), clientIp);
-            return res.json({
-                ok: true,
-                zone: zone,
-                sub: sub,
-                tunnel_domain: tunnel,
-                ns_host: nsHost,
-                created: { a: !!result.created.a, ns: !!result.created.ns },
-                updated: { a: !!result.updated.a, ns: !!result.updated.ns }
-            });
-        })
-        .catch(err => {
-            if (err && err.code === 'env_missing') {
-                console.error('SlowDNS register: konfigurasi env tidak lengkap', err.message);
-                return res.status(500).json({ error: 'internal_error' });
-            }
-            console.error('SlowDNS register: error Cloudflare', err && err.code, err && err.httpStatus, err && err.details);
-            return res.status(502).json({ error: 'cf_error' });
+    const installDomain = typeof body.install_domain === 'string' && body.install_domain.trim() !== ''
+        ? body.install_domain.trim().slice(0, 128)
+        : null;
+
+    const fetchImpl = (typeof fetch !== 'undefined' ? fetch : undefined);
+    const listRecordsFn = (opts) => dnsCf.listDnsRecords(opts);
+
+    let decision;
+    try {
+        decision = await dnsCf.resolveSlowdnsSub({
+            sub,
+            zone,
+            ip,
+            keyId: apiKey.id,
+            explicit,
+            fetchImpl,
+            model: SlowdnsDomain,
+            listRecordsFn
         });
-});
+    } catch (err) {
+        if (err && err.code === 'env_missing') {
+            console.error('SlowDNS register: konfigurasi env tidak lengkap', err.message);
+            return res.status(500).json({ error: 'internal_error' });
+        }
+        console.error('SlowDNS register: error Cloudflare', err && err.code, err && err.httpStatus, err && err.details);
+        return res.status(502).json({ error: 'cf_error' });
+    }
+
+    if (decision.status === 'conflict') {
+        AuditLog.log('SLOWDNS_REGISTER', 'zone=' + zone + ' sub=' + requestedSub + ' ip=' + ip + ' key=' + maskKey(key) + ' conflict=' + (decision.reason || 'sub_taken'), clientIp);
+        return res.status(409).json({ error: 'sub_taken' });
+    }
+
+    const finalSub = decision.sub;
+    const tunnel = finalSub + '.' + zone;
+    const nsHost = 'ns-' + finalSub + '.' + zone;
+
+    let result;
+    try {
+        result = await dnsCf.ensureSlowdnsRecords({ sub: finalSub, ip, fetchImpl });
+    } catch (err) {
+        if (err && err.code === 'env_missing') {
+            console.error('SlowDNS register: konfigurasi env tidak lengkap', err.message);
+            return res.status(500).json({ error: 'internal_error' });
+        }
+        console.error('SlowDNS register: error Cloudflare', err && err.code, err && err.httpStatus, err && err.details);
+        return res.status(502).json({ error: 'cf_error' });
+    }
+
+    try {
+        if (decision.state === 'own') {
+            SlowdnsDomain.updateOwnerInfo(decision.record.id, { ip, install_domain: installDomain });
+        } else {
+            SlowdnsDomain.create({
+                sub: finalSub,
+                zone,
+                key_id: apiKey.id,
+                install_domain: installDomain,
+                ip
+            });
+        }
+    } catch (err) {
+        console.error('SlowDNS register: kegagalan mencatat kepemilikan', err && err.message);
+        return res.status(500).json({ error: 'internal_error' });
+    }
+
+    AuditLog.log('SLOWDNS_REGISTER', 'zone=' + zone + ' sub=' + finalSub + ' ip=' + ip + ' key=' + maskKey(key) + ' fallback=' + decision.fallback, clientIp);
+
+    return res.json({
+        ok: true,
+        zone: zone,
+        sub: finalSub,
+        requested_sub: requestedSub,
+        fallback: decision.fallback,
+        tunnel_domain: tunnel,
+        ns_host: nsHost,
+        created: { a: !!result.created.a, ns: !!result.created.ns },
+        updated: { a: !!result.updated.a, ns: !!result.updated.ns }
+    });
+}
+
+router.post('/api/slowdns/register', slowdnsRegister);
 
 // GET /api/stats - Get statistics (admin only)
 router.get('/api/stats', (req, res) => {

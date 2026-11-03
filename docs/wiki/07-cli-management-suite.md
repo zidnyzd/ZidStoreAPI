@@ -25,7 +25,8 @@ Skrip berada di resources/src-bin/apicreate (912 baris). Fungsinya:
 - Menerima argumen protokol (vmess, vless, trojan, shadowsocks, ssh) dan parameter.
 - Membuat akun di /etc/xray/<protocol>/config.json dan /etc/xray/<protocol>/.<protocol>.db.
 - Menghasilkan output JSON yang diparse edge API.
-- Memvalidasi lisensi aktif via /root/.key ke https://zds.web.id/api/exp?key= (resources/src-bin/apicreate:4-5).
+- Memvalidasi lisensi aktif via /root/.key ke https://zds.web.id/api/exp?key= (4-5).
+- Output akun kini juga memuat `Slowdns Host` + `SlowDns Public Key` dari `/etc/slowdns/domain` + `/etc/slowdns/server.pub` (lihat addssh baris 61-73 dan 170-171, apicreate baris 28-36 dan 774).
 
 ## apicheck
 
@@ -89,7 +90,21 @@ resources/src-bin/autokill (104 baris). Perilaku:
 
 ## menu dan ft
 
-resources/src-bin/menu (198 baris) dan resources/src-bin/ft (169 baris). TUI interaktif di terminal VPS. Memvalidasi lisensi aktif via /root/.key ke https://zds.web.id/api/exp?key= (baris 4-5). Menampilkan domain dan script key (menu:126, menu:140, ft:110, ft:124).
+resources/src-bin/menu (198 baris) dan resources/src-bin/ft (169 baris). TUI interaktif di terminal VPS. Memvalidasi lisensi aktif via /root/.key ke https://zds.web.id/api/exp?key= (baris 4-5). Menampilkan domain dan script key (menu:126, menu:141, ft:110, ft:126). Keduanya kini menampilkan baris `SLOWDNS` berisi domain SlowDNS (menu:127, ft:111; dari `/etc/slowdns/domain`, fallback `/etc/xray/dns`). ft juga menampilkan status layanan DNSTT (`DNSTT SERVICE STATUS`, ft:123). Keduanya mencantumkan string versi `V1.0.3 LTS` (menu:144, ft:129).
+
+## menusetting (System Settings)
+
+resources/src-bin/menusetting menyediakan menu System Settings. Item "9. Change SlowDNS domain" memanggil fungsi `change_ns` (baris 293-423) dengan perilaku:
+
+- Validasi subdomain baru: huruf kecil, angka, tanda hubung, maksimal 63 karakter, dan tidak boleh diawali `ns-`.
+- Sinkronisasi record Cloudflare otomatis lewat API (POST /api/slowdns/register).
+- Menulis `/etc/slowdns/domain` dan `/etc/xray/dns`.
+- Menulis ulang unit `dnstt-server` lalu me-restart.
+- Subdomain yang sudah dipakai VPS lain ditolak dengan pesan jelas (409 sub_taken); pilih subdomain lain.
+- Bila API membalas error lain, perubahan dibatalkan; bila API tidak memberi respons (gangguan jaringan), domain turunan tetap dipakai dengan peringatan (fail-open).
+- Record DNS lama tidak dihapus otomatis, melainkan ditampilkan sebagai catatan.
+
+Menu System Settings mendaftarkan item tersebut pada baris 619 dan memanggil `change_ns` pada baris 639.
 
 ## backuprestore
 

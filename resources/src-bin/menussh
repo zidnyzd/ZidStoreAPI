@@ -70,7 +70,7 @@ if [ $status_code -eq 200 ]; then
             local sts=$(grep -qE "^SHELL" /etc/cron.d/autokill && echo -e "\033[32m[ON]\033[0m" || echo -e "\033[31m[OFF]\033[0m")
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│${green}         SSH OVPN AUTO KILL           ${orange}│${neutral}"
+            echo -e "${orange}│${green}         SSH AUTO KILL                ${orange}│${neutral}"
             echo -e "${orange}└──────────────────────────────────────┘${neutral}"
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
             echo -e "${orange}│${neutral} Autokill Status: $sts"
@@ -149,7 +149,7 @@ if [ $status_code -eq 200 ]; then
         function lock_ssh() {
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│${green}        LOCK SSH OVPN Account         ${orange}│${neutral}"
+            echo -e "${orange}│${green}        LOCK SSH Account              ${orange}│${neutral}"
             echo -e "${orange}└──────────────────────────────────────┘${neutral}"
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
             NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/ssh/.ssh.db")
@@ -222,7 +222,7 @@ if [ $status_code -eq 200 ]; then
         function unlock_ssh() {
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│${green}        UNLOCK SSH OVPN ACOUNT        ${orange}│${neutral}"
+            echo -e "${orange}│${green}        UNLOCK SSH ACOUNT             ${orange}│${neutral}"
             echo -e "${orange}└──────────────────────────────────────┘${neutral}"
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
             NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/ssh/.ssh.db")
@@ -283,7 +283,7 @@ if [ $status_code -eq 200 ]; then
         function detail_ssh() {
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│       ${green}SSH OVPN ACCOUNT DETAILS${neutral}       ${orange}│${neutral}"
+            echo -e "${orange}│       ${green}SSH ACCOUNT DETAILS${neutral}            ${orange}│${neutral}"
             echo -e "${orange}└──────────────────────────────────────┘${neutral}"
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
             NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/ssh/.ssh.db")
@@ -331,7 +331,7 @@ if [ $status_code -eq 200 ]; then
         function changelimit() {
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│    ${green}CHANGE SSH OVPN ACCOUNT LIMIT${neutral}     ${orange}│${neutral}"
+            echo -e "${orange}│    ${green}CHANGE SSH ACCOUNT LIMIT${neutral}          ${orange}│${neutral}"
             echo -e "${orange}└──────────────────────────────────────┘${neutral}"
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
             NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/ssh/.ssh.db")
@@ -391,7 +391,7 @@ if [ $status_code -eq 200 ]; then
         function member_ssh() {
             clear
             echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
-            echo -e "${orange}│${green}      SSH OVPN ACCOUNT DETAILS        ${orange}│${neutral}"
+            echo -e "${orange}│${green}      SSH ACCOUNT DETAILS             ${orange}│${neutral}"
             echo -e "${orange}├──────────────────────────────────────┤${neutral}"
 
             if [ ! -f "/etc/ssh/.ssh.db" ]; then
@@ -461,17 +461,17 @@ if [ $status_code -eq 200 ]; then
             echo -e "${orange}─────────────────────────────────────────${neutral}"
             echo -e "       ${green}.::::. SSH MANAGER .::::.${neutral}"
             echo -e "${orange}─────────────────────────────────────────${neutral}"
-            echo -e "    ${green}1.${neutral} Create SSH OVPN Account"
-            echo -e "    ${green}2.${neutral} Delete SSH OVPN Account"
-            echo -e "    ${green}3.${neutral} Renew SSH OVPN Account"
-            echo -e "    ${green}4.${neutral} Check SSH OVPN Account Login"
-            echo -e "    ${green}5.${neutral} List SSH OVPN Members"
-            echo -e "    ${green}6.${neutral} Change SSH OVPN Account Limit"
-            echo -e "    ${green}7.${neutral} Lock SSH OVPN Account"
-            echo -e "    ${green}8.${neutral} Unlock SSH OVPN Account"
-            echo -e "    ${green}9.${neutral} SSH OVPN Account Details"
-            echo -e "    ${green}10.${neutral} Autokill SSH OVPN Account"
-            echo -e "    ${green}11.${neutral} Create Trial SSH OVPN Account"
+            echo -e "    ${green}1.${neutral} Create SSH Account"
+            echo -e "    ${green}2.${neutral} Delete SSH Account"
+            echo -e "    ${green}3.${neutral} Renew SSH Account"
+            echo -e "    ${green}4.${neutral} Check SSH Account Login"
+            echo -e "    ${green}5.${neutral} List SSH Members"
+            echo -e "    ${green}6.${neutral} Change SSH Account Limit"
+            echo -e "    ${green}7.${neutral} Lock SSH Account"
+            echo -e "    ${green}8.${neutral} Unlock SSH Account"
+            echo -e "    ${green}9.${neutral} SSH Account Details"
+            echo -e "    ${green}10.${neutral} Autokill SSH Account"
+            echo -e "    ${green}11.${neutral} Create Trial SSH Account"
             echo -e "    ${green}x.${neutral} Exit SSH Manager"
             echo -e "${orange}─────────────────────────────────────────${neutral}"
             print_rainbow "─────────────────────────────────────────"

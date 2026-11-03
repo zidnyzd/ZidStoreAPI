@@ -95,7 +95,7 @@ echo ""
 printf "\033[10A\033[0J"
 print_rainbow "┌─────────────────────────────────────────┐"
 print_rainbow "│  .::.  Script by ZIDSTORE  .::.    │"
-print_rainbow "│      Input ssh/openvpn account deps     │"
+print_rainbow "│      Input ssh account deps             │"
 print_rainbow "│        Set IP Limit for Account         │"
 print_rainbow "└─────────────────────────────────────────┘"
 echo "   Username : $user"
@@ -151,7 +151,7 @@ echo "### ${user} $(date -d "$expired days" +"%Y-%m-%d")" >>/etc/ssh/.ssh.db
 # Create configuration file
 cat >/var/www/html/ssh-$user.txt <<END
 ---------------------
-SSH OVPN Account Details
+SSH Account Details
 ---------------------
 Username         : $user
 Password         : $passwd
@@ -166,22 +166,16 @@ Dropbear WS Port : 443, 109
 SSH WS Port      : 80
 SSH SSL WS Port  : 443
 SSL/TLS Port     : 443
-OVPN WS SSL Port : 443
-OVPN SSL Port    : 443
-OVPN TCP Port    : 443, 1194
-OVPN UDP Port    : 2200
 BadVPN UDP       : 7100, 7300, 7300
 ---------------------
 WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf] 
----------------------
-OpenVPN Link     : http://$domain:85
 ---------------------
 Expiration       : $exp
 END
 
 clear
 print_rainbow "───────────────────────────"
-print_rainbow "     SSH OVPN Account      "
+print_rainbow "     SSH Account           "
 print_rainbow "───────────────────────────"
 echo -e "Username         : $user"
 echo -e "Password         : $passwd"
@@ -196,14 +190,9 @@ echo -e "Dropbear Port    : 443, 109"
 echo -e "SSH WS Port      : 80"
 echo -e "SSH SSL WS Port  : 443"
 echo -e "SSL/TLS Port     : 443"
-echo -e "OVPN SSL Port    : 443"
-echo -e "OVPN TCP Port    : 1194"
-echo -e "OVPN UDP Port    : 2200"
 echo -e "BadVPN UDP       : 7100, 7300, 7300"
 print_rainbow "───────────────────────────"
 echo -e "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
-print_rainbow "───────────────────────────"
-echo -e "OpenVPN Link     : https://$domain:81/allovpn.zip"
 print_rainbow "───────────────────────────"
 echo -e "Save Account Link: https://$domain:81/ssh-$user.txt"
 print_rainbow "───────────────────────────"
@@ -213,7 +202,7 @@ echo -e ""
 # Save log
 {
     echo "───────────────────────────"
-    echo "     SSH OVPN Account     "
+    echo "     SSH Account          "
     echo "───────────────────────────"
     echo "Username         : $user"
     echo "Password         : $passwd"
@@ -229,16 +218,11 @@ echo -e ""
     echo "SSH WS Port      : 80, 8080"
     echo "SSH SSL WS Port  : 443"
     echo "SSL/TLS Port     : 443"
-    echo "OVPN SSL Port    : 443"
-    echo "OVPN TCP Port    : 1194"
-    echo "OVPN UDP Port    : 2200"
     echo "Squid Proxy      : 3128"
     echo "BadVPN UDP       : 7100, 7300, 7300"
     echo "SlowDns Public Key: ${pubkey}"
     echo "───────────────────────────"
     echo "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
-    echo "───────────────────────────"
-    echo "OpenVPN Link     : https://$domain:81/allovpn.zip"
     echo "───────────────────────────"
     echo "Save Account Link: https://$domain:81/ssh-$user.txt"
     echo "───────────────────────────"

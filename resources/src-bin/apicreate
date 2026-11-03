@@ -758,7 +758,7 @@ END
       # Create configuration file
       cat >/var/www/html/ssh-$username.txt <<END
 ---------------------
-SSH OVPN Account Details
+SSH Account Details
 ---------------------
 Username         : $username
 Password         : $password
@@ -775,15 +775,9 @@ Dropbear WS Port : 443, 109
 SSH WS Port      : 80
 SSH SSL WS Port  : 443
 SSL/TLS Port     : 443
-OVPN WS SSL Port : 443
-OVPN SSL Port    : 443
-OVPN TCP Port    : 443, 1194
-OVPN UDP Port    : 2200
 BadVPN UDP       : 7100, 7300, 7300
 ---------------------
 WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf] 
----------------------
-OpenVPN Link     : http://$domain:85
 ---------------------
 Expiration       : $exp
 END

@@ -55,7 +55,7 @@ print_rainbow() {
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 clear
 print_rainbow "┌─────────────────────────────────────────┐"
-print_rainbow "│        UPDATE SSH/OVPN ACCOUNT          │"
+print_rainbow "│        UPDATE SSH ACCOUNT               │"
 print_rainbow "└─────────────────────────────────────────┘"
 
 account_count=$(grep -c -E "^### " "/etc/ssh/.ssh.db")

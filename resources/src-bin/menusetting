@@ -82,7 +82,7 @@ if [ $status_code -eq 200 ]; then
         # Function to restart services
         restart_services() {
             services=(
-                "ssh" "dropbear" "ws" "openvpn" "nginx" "haproxy"
+                "ssh" "dropbear" "ws" "nginx" "haproxy"
                 "xray@vmess" "xray@vless" "xray@trojan" "xray@shadowsocks"
             )
             
@@ -164,7 +164,6 @@ if [ $status_code -eq 200 ]; then
             echo -e "  ${green}• SSH                : ${neutral}22, 443, 80"
             echo -e "  ${green}• Dropbear           : ${neutral}443, 109, 143"
             echo -e "  ${green}• SSH Websocket      : ${neutral}80, 443"
-            echo -e "  ${green}• OpenVPN            : ${neutral}443, 1194, 2200"
             echo -e "  ${green}• Nginx              : ${neutral}80, 81, 443"
             echo -e "  ${green}• Haproxy            : ${neutral}80, 443"
             echo -e "  ${green}• DNS                : ${neutral}53, 443"
@@ -351,7 +350,7 @@ if [ $status_code -eq 200 ]; then
 
             # Check service status
             services=(
-                "ssh" "dropbear" "ws" "openvpn" "nginx" "haproxy"
+                "ssh" "dropbear" "ws" "nginx" "haproxy"
             )
 
             for s in "${services[@]}"; do
@@ -372,7 +371,6 @@ if [ $status_code -eq 200 ]; then
                 "OpenSSH" "${ssh}"
                 "Dropbear" "${dropbear}"
                 "SSH Websocket" "${ws}"
-                "OpenVPN" "${openvpn}"
                 "Nginx" "${nginx}"
                 "Haproxy" "${haproxy}"
                 "Xray vmess" "$(check_status vmess@config)"

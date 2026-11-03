@@ -20,7 +20,7 @@ Internet
    |--- Telegram Bot (polling node-telegram-bot-api)
    |
    +-- GET /?key= ... 302 -> https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel
-   +-- /api/validate, /api/key, /api/exp, /api/register, /api/stats, /resources/*
+   +-- /api/validate, /api/key, /api/exp, /api/register, /api/change-key, /api/stats, /resources/*
 
 [ Edge Node VPS Pelanggan ]
    | port 5888 (edge API, bridge HTTPS)
@@ -60,38 +60,41 @@ Internet
 | src/index.js | 47-53 | request logging ke console |
 | src/index.js | 83-112 | listen, startup cleanup expired, bot start, audit |
 | src/index.js | 114-125 | SIGTERM, SIGINT graceful shutdown |
-| src/routes/api.js | 12-44 | GET /?key= validasi, increment, redirect 302 |
-| src/routes/api.js | 47-72 | GET /api/validate JSON response |
-| src/routes/api.js | 75-101 | GET /api/key validasi strict IP matching |
-| src/routes/api.js | 104-124 | GET /api/exp masa aktif teks |
-| src/routes/api.js | 127-168 | POST /api/register generate key, audit, duplikasi cek |
-| src/routes/api.js | 171-187 | GET /api/stars prepared statements agregat |
-| src/routes/api.js | 190-219 | GET /resources/* path traversal protection |
+| src/routes/api.js | 13-45 | GET /?key= validasi, increment, redirect 302 |
+| src/routes/api.js | 48-73 | GET /api/validate JSON response |
+| src/routes/api.js | 76-102 | GET /api/key validasi strict IP matching |
+| src/routes/api.js | 105-125 | GET /api/exp masa aktif teks |
+| src/routes/api.js | 128-169 | POST /api/register generate key, audit, duplikasi cek |
+| src/routes/api.js | 172-202 | POST /api/change-key edit key kustom |
+| src/routes/api.js | 205-221 | GET /api/stats prepared statements agregat |
+| src/routes/api.js | 224-253 | GET /resources/* path traversal protection |
 | src/database/init.js | 5-11 | DB_PATH, mkdir recursive |
 | src/database/init.js | 15-17 | pragma WAL, foreign_keys ON |
 | src/database/init.js | 20-58 | CREATE TABLE dan CREATE INDEX |
-| src/database/init.js | 61-153 | ApiKey model |
-| src/database/init.js | 155-185 | VpnAccount model |
-| src/database/init.js | 187-192 | AuditLog model |
+| src/database/init.js | 61-175 | ApiKey model |
+| src/database/init.js | 177-207 | VpnAccount model |
+| src/database/init.js | 209-214 | AuditLog model |
 | src/bot/telegram.js | 8-13 | ALLOWED_USER_ID, isAuthorized |
-| src/bot/telegram.js | 62-99 | sendPaginated |
-| src/bot/telegram.js | 133-199 | setupHandlers callback_query |
-| src/bot/telegram.js | 201-248 | /start, /help |
-| src/bot/telegram.js | 250-259 | /register |
-| src/bot/telegram.js | 261-284 | /renew |
-| src/bot/telegram.js | 286-333 | /change |
-| src/bot/telegram.js | 335-368 | /delete |
-| src/bot/telegram.js | 370-389 | /key |
-| src/bot/telegram.js | 391-410 | /list |
-| src/bot/telegram.js | 412-433 | /revoke |
-| src/bot/telegram.js | 435-457 | /stats |
-| src/bot/telegram.js | 459-684 | message handler |
+| src/bot/telegram.js | 65-102 | sendPaginated |
+| src/bot/telegram.js | 136-208 | setupHandlers callback_query |
+| src/bot/telegram.js | 210-261 | /start, /help |
+| src/bot/telegram.js | 263-272 | /register |
+| src/bot/telegram.js | 274-297 | /renew |
+| src/bot/telegram.js | 299-346 | /change |
+| src/bot/telegram.js | 348-395 | /editkey |
+| src/bot/telegram.js | 397-430 | /delete |
+| src/bot/telegram.js | 432-451 | /key |
+| src/bot/telegram.js | 453-472 | /list |
+| src/bot/telegram.js | 474-495 | /revoke |
+| src/bot/telegram.js | 497-519 | /stats |
+| src/bot/telegram.js | 521-801 | message handler |
 | src/utils/helpers.js | 2-10 | generateApiKey |
 | src/utils/helpers.js | 12-18 | formatDate |
 | src/utils/helpers.js | 20-22 | generateInstallCommand |
 | src/utils/helpers.js | 24-27 | validateIp |
 | src/utils/helpers.js | 29-31 | validateDays |
-| src/utils/helpers.js | 33-36 | isAdmin |
+| src/utils/helpers.js | 33-39 | validateCustomKey |
+| src/utils/helpers.js | 41-44 | isAdmin |
 | resources/bot/api.js | 9-16 | ansiRegex, stripAnsi |
 | resources/bot/api.js | 18-33 | extractJson |
 | resources/bot/api.js | 246-259 | checkPassword |

@@ -59,8 +59,8 @@ Solusi di kode:
 
 **Penyebab Teknis**
 
-- foreign_keys ON membuat sqlite menolak DELETE pada parent jika masih ada child vpn_accounts (src/database/init.js:17).
-- Tidak ada ON DELETE CASCADE di skema (src/database/init.js:42).
+- foreign_keys ON membuat sqlite menolak DELETE pada parent jika masih ada child vpn_accounts (src/database/init.js:17-17).
+- Tidak ada ON DELETE CASCADE di skema (src/database/init.js:42-42).
 - deleteByIp sudah berjalan dua tahap: hapus vpn_accounts per key_id, lalu hapus api_keys (src/database/init.js:98-109).
 
 Solusi yang sudah ada di kode:
@@ -119,8 +119,8 @@ Skrip menu atau ft tidak mendeteksi expired meskipun domain lisensi sudah expire
 | src/index.js | 20-21 | trust proxy |
 | src/index.js | 48-53 | logging req.ip |
 | src/index.js | 77-81 | audit SERVER_ERROR |
-| src/routes/api.js | 75-101 | GET /api/key validasi IP |
-| src/routes/api.js | 104-124 | GET /api/exp |
+| src/routes/api.js | 76-102 | GET /api/key validasi IP |
+| src/routes/api.js | 105-125 | GET /api/exp |
 | src/database/init.js | 17 | pragma foreign_keys |
 | src/database/init.js | 42 | FOREIGN KEY tanpa ON DELETE CASCADE |
 | src/database/init.js | 98-109 | deleteByIp dua tahap |

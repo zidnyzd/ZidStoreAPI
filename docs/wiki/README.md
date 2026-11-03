@@ -34,14 +34,17 @@ ZidStoreAPI adalah backend control plane untuk pengelolaan lisensi VPN tunnel ya
 | Endpoint GET /?key= dan redirect GitHub raw | 03-api-dan-lisensi.md |
 | Validasi ketat IP matching di GET /api/key | 03-api-dan-lisensi.md |
 | Pengecekan masa aktif GET /api/exp | 03-api-dan-lisensi.md |
+| Endpoint POST /api/change-key untuk kustom key | 03-api-dan-lisensi.md |
 | Statistik agregat GET /api/stats | 03-api-dan-lisensi.md |
 | Penyajian file statis /resources/* dengan proteksi traversal | 03-api-dan-lisensi.md |
 | Konfigurasi trust proxy dan rate limiter | 03-api-dan-lisensi.md |
 | Skema tabel api_keys, vpn_accounts, audit_log | 04-database-dan-model.md |
 | Method ApiKey.create, findByKey, deleteByIp, renewByIp | 04-database-dan-model.md |
+| Method ApiKey.changeKey untuk kustom key | 04-database-dan-model.md |
 | Cascade delete vpn_accounts sebelum api_keys | 04-database-dan-model.md |
 | RBAC ALLOWED_USER_ID 6200639382 | 05-bot-telegram-control-plane.md |
 | State machine userStates multi-step | 05-bot-telegram-control-plane.md |
+| Perintah /editkey untuk ganti kustom key | 05-bot-telegram-control-plane.md |
 | Paginasi sendPaginated dengan edit in-place | 05-bot-telegram-control-plane.md |
 | Microservice daemon port 5888 | 06-edge-bot-dan-api.md |
 | Autentikasi checkPassword via /root/.key | 06-edge-bot-dan-api.md |

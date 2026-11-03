@@ -4,11 +4,11 @@ Database adalah SQLite single-file di data/zidstore.db, diakses lewat better-sql
 
 ## Konfigurasi Koneksi
 
-- DB_PATH diambil dari environment dengan fallback ./data/zidstore.db (src/database/init.js:5).
+- DB_PATH diambil dari environment dengan fallback ./data/zidstore.db (src/database/init.js:5-5).
 - Direktori data dibuat otomatis dengan fs.mkdirSync recursive bila belum ada (src/database/init.js:7-11).
-- Koneksi dibuat sekali pada modul load: `new Database(DB_PATH)` (src/database/init.js:13).
-- WAL mode aktif agar reader tidak terblokir writer (src/database/init.js:16).
-- foreign_keys ON, wajib untuk menjaga integritas vpn_accounts terhadap api_keys (src/database/init.js:17).
+- Koneksi dibuat sekali pada modul load: `new Database(DB_PATH)` (src/database/init.js:13-13).
+- WAL mode aktif agar reader tidak terblokir writer (src/database/init.js:16-16).
+- foreign_keys ON, wajib untuk menjaga integritas vpn_accounts terhadap api_keys (src/database/init.js:17-17).
 
 ## Skema Tabel
 
@@ -49,7 +49,7 @@ Database adalah SQLite single-file di data/zidstore.db, diakses lewat better-sql
 | ip_address | TEXT | Nullable | IP pelaku atau sumber |
 | created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Waktu kejadian |
 
-Catatan: task menyebut tabel `audit_logs`, namun skema yang benar-benar dieksekusi adalah `audit_log` (tunggal), sumber/query di src/database/init.js:45 dan src/database/init.js:189. Nama objek AuditLog pada kode tetap mengikuti konvensi camel case.
+Catatan: task menyebut tabel `audit_logs`, namun skema yang benar-benar dieksekusi adalah `audit_log` (tunggal), sumber/query di src/database/init.js:45-45 dan src/database/init.js:211-211. Nama objek AuditLog pada kode tetap mengikuti konvensi camel case.
 
 ### Index (src/database/init.js:53-57)
 
@@ -61,7 +61,7 @@ Catatan: task menyebut tabel `audit_logs`, namun skema yang benar-benar diekseku
 
 Index gabungan is_active dan expires_at kompensasi query deaktivasi massaal sekaligus query key aktif.
 
-## Model ApiKey (src/database/init.js:61-153)
+## Model ApiKey (src/database/init.js:61-175)
 
 Semua query memakai prepared statement dengan parameter binding, sehingga tidak ada interpolasi string ke SQL.
 
@@ -76,48 +76,51 @@ Semua query memakai prepared statement dengan parameter binding, sehingga tidak 
 | deactivateByIp(ip) | 93-96 | UPDATE is_active = 0 WHERE ip_address = ? |
 | deleteByIp(ip) | 98-109 | Hapus vpn_accounts terkait dulu, baru hapus api_keys |
 | changeIp(oldIp, newIp) | 111-124 | UPDATE ip_address WHERE ip_address = oldIp |
-| renewByIp(ip, days) | 126-142 | Perpanjang dari max(Date.now(), expires_at), set is_active = 1 |
-| deactivateExpired() | 144-147 | UPDATE is_active = 0 WHERE expires_at < datetime('now') |
-| incrementUsage(key) | 149-152 | usage_count + 1 dan last_used = CURRENT_TIMESTAMP |
+| changeKey(ip, newKey) | 126-146 | Cari key terbaru via findLatestByIp, tolak NOT_FOUND/DUPLICATE_KEY, UPDATE key, kembalikan oldKey/newKey/data |
+| renewByIp(ip, days) | 148-164 | Perpanjang dari max(Date.now(), expires_at), set is_active = 1 |
+| deactivateExpired() | 166-169 | UPDATE is_active = 0 WHERE expires_at < datetime('now') |
+| incrementUsage(key) | 171-174 | usage_count + 1 dan last_used = CURRENT_TIMESTAMP |
 
 Catatan penting: findByKey hanya mengembalikan key dengan is_active = 1. Semua handler yang memeriksa key expired tetap bekerja karena key expired sudah dinonaktifkan oleh deactivateExpired pada startup atau oleh request sebelumnya.
 
-## Model VpnAccount (src/database/init.js:155-185)
+## Model VpnAccount (src/database/init.js:177-207)
 
 | Method | Baris | Perilaku |
 |--------|-------|----------|
-| create(username, keyId, protocol, port, expiresAt) | 156-159 | Insert akun baru terikat key_id |
-| findByUsername(username) | 161-164 | Cari akun per username |
-| findByKeyId(keyId) | 166-169 | Semua akun untuk satu lisensi, ORDER BY created_at DESC |
-| deactivate(username) | 171-174 | UPDATE is_active = 0 |
-| deactivateExpired() | 176-179 | Nonaktifkan akun yang lewat masa aktif |
-| findAll() | 181-184 | JOIN vpn_accounts dengan api_keys untuk mengambil ip_address |
+| create(username, keyId, protocol, port, expiresAt) | 178-181 | Insert akun baru terikat key_id |
+| findByUsername(username) | 183-186 | Cari akun per username |
+| findByKeyId(keyId) | 188-191 | Semua akun untuk satu lisensi, ORDER BY created_at DESC |
+| deactivate(username) | 193-196 | UPDATE is_active = 0 |
+| deactivateExpired() | 198-201 | Nonaktifkan akun yang lewat masa aktif |
+| findAll() | 203-206 | JOIN vpn_accounts dengan api_keys untuk mengambil ip_address |
 
-## Model AuditLog (src/database/init.js:187-192)
+## Model AuditLog (src/database/init.js:209-214)
 
 `log(action, details, ip = null)` melakukan INSERT ke audit_log. Dipakai di banyak tempat:
 
-- src/routes/api.js:24 INVALID_KEY
-- src/routes/api.js:31 EXPIRED_KEY
-- src/routes/api.js:39 SCRIPT_DOWNLOAD
-- src/routes/api.js:95 IP_MISMATCH
-- src/routes/api.js:158 KEY_REGISTER
-- src/bot/telegram.js:328 dan 588 IP_CHANGED
-- src/bot/telegram.js:363 dan 613 IP_DELETED
-- src/bot/telegram.js:428 KEY_REVOKED
-- src/bot/telegram.js:531 KEY_RENEWED
-- src/bot/telegram.js:643 BOT_REGISTER
+- src/routes/api.js:25-25 INVALID_KEY
+- src/routes/api.js:32-32 EXPIRED_KEY
+- src/routes/api.js:40-40 SCRIPT_DOWNLOAD
+- src/routes/api.js:96-96 IP_MISMATCH
+- src/routes/api.js:159-159 KEY_REGISTER
+- src/routes/api.js:194-194 KEY_CHANGED
+- src/bot/telegram.js:341-341 dan 650 IP_CHANGED
+- src/bot/telegram.js:425-425 dan 613 IP_DELETED
+- src/bot/telegram.js:390-390 dan 704-704 KEY_EDITED
+- src/bot/telegram.js:490-490 KEY_REVOKED
+- src/bot/telegram.js:593-593 KEY_RENEWED
+- src/bot/telegram.js:760-760 BOT_REGISTER
 - src/index.js:79 SERVER_ERROR
 - src/index.js:111 SERVER_START
 - src/index.js:117 dan 123 SERVER_STOP
 
 ## Integritas Relasional dan Cascade Delete
 
-Schema declaring foreign key (key_id) REFERENCES api_keys(id) pada src/database/init.js:42, dengan pragma foreign_keys = ON pada src/database/init.js:17. Artinya penghapusan parent api_keys akan ditolak selama masih ada vpn_accounts yang merujuk.
+Schema declaring foreign key (key_id) REFERENCES api_keys(id) pada src/database/init.js:42-42, dengan pragma foreign_keys = ON pada src/database/init.js:17-17. Artinya penghapusan parent api_keys akan ditolak selama masih ada vpn_accounts yang merujuk.
 
 Karena itu deleteByIp (src/database/init.js:98-109) tidak bisa langsung menghapus api_keys. Implementasinya dua tahap:
 
-1. SELECT id FROM api_keys WHERE ip_address = ? (src/database/init.js:100).
+1. SELECT id FROM api_keys WHERE ip_address = ? (src/database/init.js:100-100).
 2. DELETE FROM vpn_accounts WHERE key_id = ? untuk setiap id (src/database/init.js:102-105).
 3. DELETE FROM api_keys WHERE ip_address = ? (src/database/init.js:107-108).
 
@@ -127,7 +130,7 @@ Catatan lain: changeIp (src/database/init.js:111-124) mengubah ip_address pada s
 
 ## Mode WAL
 
-WAL (Write-Ahead Logging) diaktifkan pada src/database/init.js:16. Konsekuensinya:
+WAL (Write-Ahead Logging) diaktifkan pada src/database/init.js:16-16. Konsekuensinya:
 
 - Pembacaan tidak terblokir oleh penulisan.
 - File database terdiri dari data/zidstore.db, -wal, dan -shm.
@@ -146,11 +149,13 @@ WAL (Write-Ahead Logging) diaktifkan pada src/database/init.js:16. Konsekuensiny
 | src/database/init.js | 33-43 | tabel vpn_accounts |
 | src/database/init.js | 45-51 | tabel audit_log |
 | src/database/init.js | 53-57 | index |
-| src/database/init.js | 61-153 | ApiKey |
+| src/database/init.js | 61-175 | ApiKey |
 | src/database/init.js | 98-109 | deleteByIp dua tahap |
 | src/database/init.js | 111-124 | changeIp |
-| src/database/init.js | 126-142 | renewByIp |
-| src/database/init.js | 144-147 | deactivateExpired |
-| src/database/init.js | 155-185 | VpnAccount |
-| src/database/init.js | 187-192 | AuditLog |
+| src/database/init.js | 126-146 | changeKey |
+| src/database/init.js | 148-164 | renewByIp |
+| src/database/init.js | 166-169 | deactivateExpired |
+| src/database/init.js | 171-174 | incrementUsage |
+| src/database/init.js | 177-207 | VpnAccount |
+| src/database/init.js | 209-214 | AuditLog |
 | src/index.js | 95-97 | startup cleanup expired |

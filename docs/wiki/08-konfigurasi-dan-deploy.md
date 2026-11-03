@@ -157,4 +157,4 @@ PM2 menjalankan src/index.js sebagai daemon. Karena index.js memanggil process.o
 | deploy.sh | 324-329 | Crontab renewal |
 | deploy.sh | 349-352 | Helpers |
 | src/index.js | 114-125 | Graceful shutdown |
-| src/routes/api.js | 190-219 | Resources static |
+| src/routes/api.js | 224-253 | Resources static |

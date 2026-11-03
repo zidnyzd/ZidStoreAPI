@@ -25,7 +25,13 @@ if [ $status_code -eq 200 ]; then
 
     # Get configuration information
     domain=$(get_config_info_123 "/etc/xray/domain" "Domain not found")
-    ns_domain=$(get_config_info_123 "/etc/xray/dns" "NS Domain not found")
+    if [ -f /etc/slowdns/domain ]; then
+      ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
+    elif [ -f /etc/xray/dns ]; then
+      ns_domain=$(cat /etc/xray/dns)
+    else
+      ns_domain="NS Domain not found"
+    fi
     city=$(get_config_info_123 "/etc/xray/city" "Location not found")
     public_key=$(get_config_info_123 "/etc/slowdns/server.pub" "Public key not found")
     uuid=$(cat /proc/sys/kernel/random/uuid)

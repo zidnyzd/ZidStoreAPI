@@ -63,6 +63,15 @@ domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 uuid=$(cat /proc/sys/kernel/random/uuid)
 password=$(openssl rand -base64 16)
 
+if [ -f /etc/slowdns/domain ]; then
+  ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
+elif [ -f /etc/xray/dns ]; then
+  ns_domain=$(cat /etc/xray/dns)
+else
+  ns_domain="NS Domain not found"
+fi
+pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Public key not found")
+
 # Exception handling if config file doesn't exist
 if [ ! -f "/etc/xray/shadowsocks/config.json" ]; then
   echo "Shadowsocks config file not found. Creating a new file..."

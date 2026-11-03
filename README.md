@@ -265,6 +265,10 @@ sudo certbot --nginx -d zds.web.id
 | `DB_PATH` | SQLite database path | No |
 | `KEY_LENGTH` | API key length (default: 20) | No |
 | `KEY_PREFIX` | API key prefix (default: zs) | No |
+| `CF_DNSTT_TOKEN` | Cloudflare API token untuk otomasi SlowDNS | No |
+| `CF_ACCOUNT_ID` | Cloudflare Account ID untuk otomasi SlowDNS | No |
+| `CF_DNSTT_ZONE` | Zona DNS SlowDNS (default: zdnstt.web.id) | No |
+| `CF_ZONE_ID` | ID zona Cloudflare, opsional (default: dicari via API) | No |
 
 ## License
 

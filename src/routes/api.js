@@ -7,6 +7,8 @@ const { ApiKey, AuditLog, InstallLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
 const { generateInstallCommand, maskKey } = require(helperPath);
 const { validateCustomKey, validateIp } = require('../utils/helpers');
+const dnsCfPath = path.join(__dirname, '..', 'utils', 'dnstt-cf');
+const dnsCf = require(dnsCfPath);
 
 const failNotify = {};
 
@@ -329,6 +331,82 @@ router.post('/api/change-key', (req, res) => {
         old_key: result.oldKey,
         new_key: newKey
     });
+});
+
+// POST /api/slowdns/register - Create Cloudflare DNS records for SlowDNS (idempotent)
+router.post('/api/slowdns/register', (req, res) => {
+    const key = req.get('X-API-Key') || req.query.key;
+    const clientIp = req.ip || req.connection.remoteAddress;
+
+    if (!key) {
+        return res.status(400).json({ error: 'missing_key' });
+    }
+
+    const apiKey = ApiKey.findByKey(key);
+    if (!apiKey) {
+        return res.status(403).json({ error: 'invalid_key' });
+    }
+
+    if (new Date(apiKey.expires_at) < new Date()) {
+        return res.status(403).json({ error: 'key_expired' });
+    }
+
+    if (apiKey.ip_address && apiKey.ip_address !== clientIp) {
+        return res.status(403).json({ error: 'ip_mismatch' });
+    }
+
+    const body = req.body || {};
+    const domain = typeof body.domain === 'string' ? body.domain.trim() : '';
+    if (!domain) {
+        return res.status(400).json({ error: 'invalid_domain' });
+    }
+
+    let sub = (typeof body.sub === 'string' && body.sub.trim() !== '') ? body.sub.trim() : domain.split('.')[0];
+    sub = String(sub).toLowerCase();
+
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(sub)) {
+        return res.status(400).json({ error: 'invalid_sub' });
+    }
+
+    if (sub.startsWith('ns-')) {
+        return res.status(400).json({ error: 'sub_reserved' });
+    }
+
+    const limitResult = rateLimitInstallLog(apiKey.id);
+    if (!limitResult.allowed) {
+        return res.status(429).json({ error: 'rate_limit', retry_after: limitResult.retryAfter });
+    }
+
+    const zone = process.env.CF_DNSTT_ZONE || 'zdnstt.web.id';
+    const tunnel = sub + '.' + zone;
+    const nsHost = 'ns-' + sub + '.' + zone;
+
+    let ip = apiKey.ip_address || clientIp;
+    if (typeof ip === 'string' && ip.startsWith('::ffff:')) {
+        ip = ip.substring(7);
+    }
+
+    return dnsCf.ensureSlowdnsRecords({ sub, ip, fetchImpl: (typeof fetch !== 'undefined' ? fetch : undefined) })
+        .then(result => {
+            AuditLog.log('SLOWDNS_REGISTER', 'zone=' + zone + ' sub=' + sub + ' ip=' + ip + ' key=' + maskKey(key), clientIp);
+            return res.json({
+                ok: true,
+                zone: zone,
+                sub: sub,
+                tunnel_domain: tunnel,
+                ns_host: nsHost,
+                created: { a: !!result.created.a, ns: !!result.created.ns },
+                updated: { a: !!result.updated.a, ns: !!result.updated.ns }
+            });
+        })
+        .catch(err => {
+            if (err && err.code === 'env_missing') {
+                console.error('SlowDNS register: konfigurasi env tidak lengkap', err.message);
+                return res.status(500).json({ error: 'internal_error' });
+            }
+            console.error('SlowDNS register: error Cloudflare', err && err.code, err && err.httpStatus, err && err.details);
+            return res.status(502).json({ error: 'cf_error' });
+        });
 });
 
 // GET /api/stats - Get statistics (admin only)

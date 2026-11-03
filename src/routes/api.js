@@ -1,13 +1,143 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const TelegramBot = require('node-telegram-bot-api');
 const dbPath = path.join(__dirname, '..', 'database', 'init');
-const { ApiKey, AuditLog } = require(dbPath);
+const { ApiKey, AuditLog, InstallLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
-const { generateInstallCommand } = require(helperPath);
+const { generateInstallCommand, maskKey } = require(helperPath);
 const { validateCustomKey, validateIp } = require('../utils/helpers');
 
+const failNotify = {};
+
 const router = express.Router();
+
+const installLogLimiter = new Map();
+
+function rateLimitInstallLog(keyId) {
+    const now = Date.now();
+    const windowMs = 2000;
+    const maxRequests = 5;
+
+    const entry = installLogLimiter.get(keyId) || { tokens: maxRequests, lastRefill: now };
+    const elapsed = now - entry.lastRefill;
+    if (elapsed > 0) {
+        const refill = (elapsed / 1000) * 0.5;
+        entry.tokens = Math.min(maxRequests, entry.tokens + refill);
+        entry.lastRefill = now;
+    }
+
+    if (entry.tokens >= 1) {
+        entry.tokens -= 1;
+        installLogLimiter.set(keyId, entry);
+        return { allowed: true };
+    }
+
+    installLogLimiter.set(keyId, entry);
+    return { allowed: false, retryAfter: 2 };
+}
+
+// POST /api/install-logs - Receive installer telemetry events
+router.post('/api/install-logs', (req, res) => {
+    const key = req.query.key || req.get('X-API-Key');
+    const clientIp = req.ip || req.connection.remoteAddress;
+
+    if (!key) {
+        return res.status(400).json({ error: 'missing_key' });
+    }
+
+    const apiKey = ApiKey.findByKey(key);
+    if (!apiKey) {
+        return res.status(403).json({ error: 'invalid_key' });
+    }
+
+    if (new Date(apiKey.expires_at) < new Date()) {
+        return res.status(403).json({ error: 'key_expired' });
+    }
+
+    if (apiKey.ip_address && apiKey.ip_address !== clientIp) {
+        return res.status(403).json({ error: 'ip_mismatch' });
+    }
+
+    const body = req.body || {};
+
+    if (typeof body.install_id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.install_id)) {
+        return res.status(400).json({ error: 'invalid_install_id' });
+    }
+    if (typeof body.event !== 'string' || body.event.length < 3 || body.event.length > 50) {
+        return res.status(400).json({ error: 'invalid_event' });
+    }
+    if (!['success', 'failed', 'running'].includes(body.status)) {
+        return res.status(400).json({ error: 'invalid_status' });
+    }
+    if (body.timestamp && typeof body.timestamp !== 'string') {
+        return res.status(400).json({ error: 'invalid_timestamp' });
+    }
+    if (body.timestamp && typeof body.timestamp === 'string') {
+        const ts = Date.parse(body.timestamp);
+        if (isNaN(ts)) {
+            return res.status(400).json({ error: 'invalid_timestamp' });
+        }
+    }
+
+    const limitResult = rateLimitInstallLog(apiKey.id);
+    if (!limitResult.allowed) {
+        return res.status(429).json({ error: 'rate_limit', retry_after: limitResult.retryAfter });
+    }
+
+    const payload = {
+        install_id: body.install_id,
+        event: body.event.slice(0, 50),
+        status: body.status,
+        step: typeof body.step === 'string' ? body.step.slice(0, 64) : null,
+        script_version: typeof body.script_version === 'string' ? body.script_version.slice(0, 32) : null,
+        domain: typeof body.domain === 'string' ? body.domain.slice(0, 128) : null,
+        ip: typeof body.ip === 'string' ? body.ip.slice(0, 64) : null,
+        os: typeof body.os === 'string' ? body.os.slice(0, 64) : null,
+        os_version: typeof body.os_version === 'string' ? body.os_version.slice(0, 64) : null,
+        arch: typeof body.arch === 'string' ? body.arch.slice(0, 64) : null,
+        payload: typeof body.payload === 'object' && body.payload !== null ? JSON.stringify(body.payload) : null
+    };
+
+    if (payload.payload && payload.payload.length > 4096) {
+        payload.payload = payload.payload.slice(0, 4096);
+    }
+
+    try {
+        InstallLog.log(payload);
+    } catch (err) {
+        console.error('Failed to write install log', err);
+        return res.status(500).json({ error: 'internal_error' });
+    }
+
+    if (body.status === 'failed' && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here') {
+        try {
+            const { TELEGRAM_ADMIN_ID } = process.env;
+            const adminIds = TELEGRAM_ADMIN_ID ? TELEGRAM_ADMIN_ID.split(',').map(id => id.trim()) : [];
+            if (adminIds.length > 0) {
+                if (!failNotify.bot) {
+                    failNotify.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
+                }
+                const failedMsg = [
+                    `\u26a0\ufe0f *Installation Failed*`,
+                    ``,
+                    `IP: \`${payload.ip || '-'}\``,
+                    `Domain: \`${payload.domain || '-'}\``,
+                    `Event: \`${payload.event}\``,
+                    `Step: \`${payload.step || '-'}\``,
+                    `Time: \`${body.timestamp || new Date().toISOString()}\``
+                ].join('\n');
+                adminIds.forEach(chatId => {
+                    failNotify.bot.sendMessage(chatId, failedMsg, { parse_mode: 'Markdown' }).catch(() => {});
+                });
+            }
+        } catch (err) {
+            // fire-and-forget: never break the telemetry response
+        }
+    }
+
+    return res.json({ ok: true });
+});
 
 // GET /?key=XXXXX - Download script with key validation
 router.get('/', (req, res) => {
@@ -22,14 +152,14 @@ router.get('/', (req, res) => {
     const apiKey = ApiKey.findByKey(key);
     
     if (!apiKey) {
-        AuditLog.log('INVALID_KEY', `Key: ${key}, IP: ${clientIp}`, clientIp);
+        AuditLog.log('INVALID_KEY', `Key: ${maskKey(key)}, IP: ${clientIp}`, clientIp);
         return res.status(403).send('Error: Invalid or expired key. Please contact administrator.');
     }
 
     // Check expiration
     if (new Date(apiKey.expires_at) < new Date()) {
         ApiKey.deactivate(key);
-        AuditLog.log('EXPIRED_KEY', `Key: ${key}, IP: ${apiKey.ip_address}`, clientIp);
+        AuditLog.log('EXPIRED_KEY', `Key: ${maskKey(key)}, IP: ${apiKey.ip_address}`, clientIp);
         return res.status(403).send('Error: Key has expired. Please register a new key.');
     }
 
@@ -37,7 +167,7 @@ router.get('/', (req, res) => {
     ApiKey.incrementUsage(key);
 
     // Log successful access
-    AuditLog.log('SCRIPT_DOWNLOAD', `Key: ${key}, Registered IP: ${apiKey.ip_address}`, clientIp);
+    AuditLog.log('SCRIPT_DOWNLOAD', `Key: ${maskKey(key)}, Registered IP: ${apiKey.ip_address}`, clientIp);
 
     // Redirect to GitHub raw URL for always-latest script
     const githubUrl = 'https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel';
@@ -74,7 +204,7 @@ router.get('/api/validate', (req, res) => {
 
 // GET /api/key - Return plain key string (for script validation)
 router.get('/api/key', (req, res) => {
-    const { key } = req.query;
+    const key = req.query.key || req.get('X-API-Key');
     const clientIp = req.ip || req.connection.remoteAddress;
 
     if (!key) {
@@ -93,7 +223,7 @@ router.get('/api/key', (req, res) => {
     }
 
     if (apiKey.ip_address && apiKey.ip_address !== clientIp) {
-        AuditLog.log('IP_MISMATCH', `Key: ${key}, Expected: ${apiKey.ip_address}, Got: ${clientIp}`, clientIp);
+        AuditLog.log('IP_MISMATCH', `Key: ${maskKey(key)}, Expected: ${apiKey.ip_address}, Got: ${clientIp}`, clientIp);
         return res.status(403).send('Error: IP not authorized for this key');
     }
 
@@ -156,7 +286,7 @@ router.post('/api/register', (req, res) => {
     const newKey = generateApiKey(parseInt(process.env.KEY_LENGTH) || 20);
     const result = ApiKey.create(newKey, ip, parseInt(days));
 
-    AuditLog.log('KEY_REGISTER', `IP: ${ip}, Days: ${days}, Key: ${newKey}`);
+    AuditLog.log('KEY_REGISTER', `IP: ${ip}, Days: ${days}, Key: ${maskKey(newKey)}`);
 
     res.json({
         success: true,
@@ -191,7 +321,7 @@ router.post('/api/change-key', (req, res) => {
         return res.status(409).json({ error: 'Key already in use by another IP' });
     }
 
-    AuditLog.log('KEY_CHANGED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${newKey}`, req.ip || req.connection.remoteAddress);
+    AuditLog.log('KEY_CHANGED', `IP: ${ip}, Old Key: ${maskKey(result.oldKey)}, New Key: ${maskKey(newKey)}`, req.ip || req.connection.remoteAddress);
 
     return res.status(200).json({
         success: true,

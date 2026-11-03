@@ -55,6 +55,27 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active, expires_at);
     CREATE INDEX IF NOT EXISTS idx_vpn_accounts_key ON vpn_accounts(key_id);
     CREATE INDEX IF NOT EXISTS idx_vpn_accounts_username ON vpn_accounts(username);
+
+    CREATE TABLE IF NOT EXISTS install_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        install_id TEXT NOT NULL,
+        event TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('success','failed','running')),
+        step TEXT,
+        script_version TEXT,
+        domain TEXT,
+        ip TEXT,
+        os TEXT,
+        os_version TEXT,
+        arch TEXT,
+        payload TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_install_logs_install_id ON install_logs(install_id);
+    CREATE INDEX IF NOT EXISTS idx_install_logs_ip ON install_logs(ip);
+    CREATE INDEX IF NOT EXISTS idx_install_logs_event_status ON install_logs(event, status);
+    CREATE INDEX IF NOT EXISTS idx_install_logs_created_at ON install_logs(created_at);
 `);
 
 // Helper functions
@@ -213,4 +234,35 @@ const AuditLog = {
     }
 };
 
-module.exports = { db, ApiKey, VpnAccount, AuditLog };
+const InstallLog = {
+    log(data) {
+        const stmt = db.prepare(`INSERT INTO install_logs (install_id, event, status, step, script_version, domain, ip, os, os_version, arch, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        return stmt.run(
+            data.install_id,
+            data.event,
+            data.status,
+            data.step,
+            data.script_version,
+            data.domain,
+            data.ip,
+            data.os,
+            data.os_version,
+            data.arch,
+            JSON.stringify(data.payload || {})
+        );
+    },
+    findByInstallId(installId, limit = 50) {
+        const stmt = db.prepare('SELECT * FROM install_logs WHERE install_id = ? ORDER BY created_at ASC LIMIT ?');
+        return stmt.all(installId, limit);
+    },
+    findByIp(ip, limit = 20) {
+        const stmt = db.prepare('SELECT * FROM install_logs WHERE ip = ? ORDER BY created_at DESC LIMIT ?');
+        return stmt.all(ip, limit);
+    },
+    prune(olderThanDays = 30) {
+        const stmt = db.prepare("DELETE FROM install_logs WHERE created_at < datetime('now', '-' || ? || ' days')");
+        return stmt.run(olderThanDays);
+    }
+};
+
+module.exports = { db, ApiKey, VpnAccount, AuditLog, InstallLog };

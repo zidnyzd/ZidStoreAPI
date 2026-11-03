@@ -41,5 +41,16 @@ module.exports = {
     isAdmin(telegramId) {
         const adminIds = process.env.TELEGRAM_ADMIN_ID?.split(',').map(id => id.trim()) || [];
         return adminIds.includes(String(telegramId));
+    },
+
+    maskKey(key) {
+        if (!key) {
+            return '(none)';
+        }
+        const str = String(key);
+        if (str.length <= 4) {
+            return str;
+        }
+        return str.slice(0, 4) + '****';
     }
 };

@@ -4,7 +4,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
-const { ApiKey, AuditLog } = require('./database/init');
+const { ApiKey, AuditLog, InstallLog } = require('./database/init');
 
 // Initialize routes
 const apiRoutes = require('./routes/api');
@@ -95,6 +95,18 @@ app.listen(PORT, '0.0.0.0', () => {
     // Clean up expired keys on startup
     const { deactivated } = ApiKey.deactivateExpired();
     console.log(`Cleaned up ${deactivated} expired keys`);
+
+    // Prune install logs every 24 hours (default retention 30 days)
+    setInterval(() => {
+        try {
+            const result = InstallLog.prune(30);
+            if (result && result.changes > 0) {
+                console.log(`Pruned ${result.changes} install log entries older than 30 days`);
+            }
+        } catch (err) {
+            console.error('Install log pruning failed:', err.message);
+        }
+    }, 24 * 60 * 60 * 1000);
 
     // Start Telegram Bot
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here') {

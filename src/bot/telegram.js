@@ -1,9 +1,9 @@
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
 const dbPath = path.join(__dirname, '..', 'database', 'init');
-const { ApiKey, VpnAccount, AuditLog } = require(dbPath);
+const { ApiKey, VpnAccount, AuditLog, InstallLog } = require(dbPath);
 const helperPath = path.join(__dirname, '..', 'utils', 'helpers');
-const { generateApiKey, validateIp, validateDays, validateCustomKey, formatDate, generateInstallCommand, isAdmin } = require(helperPath);
+const { generateApiKey, validateIp, validateDays, validateCustomKey, formatDate, generateInstallCommand, isAdmin, maskKey } = require(helperPath);
 
 // Hanya user dengan ID ini yang diizinkan menggunakan bot (admin selalu diizinkan)
 const ALLOWED_USER_ID = 6200639382;
@@ -338,7 +338,7 @@ class TelegramBotHandler {
             }
 
             const updated = ApiKey.changeIp(oldIp, newIp);
-            AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${newIp}, Key: ${updated.key}, By: ${msg.from.id}`);
+            AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${newIp}, Key: ${maskKey(updated.key)}, By: ${msg.from.id}`);
 
             return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${newIp}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
                 parse_mode: 'Markdown'
@@ -387,7 +387,7 @@ class TelegramBotHandler {
                 });
             }
 
-            AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${newKey}, By: ${msg.from.id}`);
+            AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${maskKey(result.oldKey)}, New Key: ${maskKey(newKey)}, By: ${msg.from.id}`);
 
             return this.bot.sendMessage(chatId, `✅ *Key berhasil diubah!*\n\n• IP VPS: \`${ip}\`\n• Key Lama: \`${result.oldKey}\`\n• Key Baru: \`${newKey}\`\n• Berlaku sampai: ${formatDate(result.data.expires_at)}\n\n⚠️ *Penting untuk VPS aktif:*\nJalankan perintah ini di VPS agar key sinkron:\n\`\`\`\necho "${newKey}" > /root/.key\n\`\`\``, {
                 parse_mode: 'Markdown'
@@ -518,6 +518,60 @@ class TelegramBotHandler {
             this.bot.sendMessage(msg.chat.id, statsMsg, { parse_mode: 'Markdown' });
         });
 
+        // Admin: /installlog <ip|install_id> and prune
+        this.bot.onText(/\/installlog(?:\s+(.+))?/, (msg, match) => {
+            const chatId = msg.chat.id;
+            if (!isAuthorized(msg.from.id)) return this.bot.sendMessage(chatId, '⛔ Anda tidak memiliki izin untuk menggunakan bot ini.');
+            if (!isAdmin(msg.from.id)) {
+                return this.bot.sendMessage(chatId, '❌ *Admin only command.*', { parse_mode: 'Markdown' });
+            }
+
+            const arg = (match[1] || '').trim();
+            if (!arg) {
+                return this.bot.sendMessage(chatId, '❌ *Usage:* `/installlog <ip|install_id>` atau `/installlog prune`', { parse_mode: 'Markdown' });
+            }
+
+            if (arg === 'prune') {
+                try {
+                    const result = InstallLog.prune(30);
+                    return this.bot.sendMessage(chatId, `✅ *Pruned*\n\nBerhasil menghapus log instalasi lebih dari 30 hari.\nTerhapus: ${result.changes || 0} entri.`, { parse_mode: 'Markdown' });
+                } catch (err) {
+                    return this.bot.sendMessage(chatId, `❌ Gagal pruning: ${err.message}`, { parse_mode: 'Markdown' });
+                }
+            }
+
+            const isIp = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(arg);
+            let logs = [];
+            if (isIp) {
+                logs = InstallLog.findByIp(arg, 30);
+            } else {
+                logs = InstallLog.findByInstallId(arg, 30);
+            }
+
+            if (!logs || logs.length === 0) {
+                return this.bot.sendMessage(chatId, '❌ Tidak ditemukan log instalasi.', { parse_mode: 'Markdown' });
+            }
+
+            const lines = [];
+            lines.push(`📊 *Install Log Timeline*`);
+            lines.push(`Target: \`${arg}\``);
+            lines.push(`Jumlah: ${logs.length} entri`);
+            lines.push(``);
+
+            for (const l of logs.slice(0, 30)) {
+                const time = l.created_at ? l.created_at : '-';
+                lines.push(`• *${l.event}* [${l.status}]`);
+                if (l.step) lines.push(`  Step: ${l.step}`);
+                if (l.domain) lines.push(`  Domain: ${l.domain}`);
+                if (l.ip) lines.push(`  IP: ${l.ip}`);
+                lines.push(`  Waktu: ${time}`);
+                lines.push(``);
+            }
+
+            const text = lines.join('\n');
+            return this.bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+        });
+
         // Handle message responses (for registration flow)
         this.bot.on('message', (msg) => {
             const chatId = msg.chat.id;
@@ -590,7 +644,7 @@ class TelegramBotHandler {
                     });
                 }
 
-                AuditLog.log('KEY_RENEWED', `IP: ${userState.ip}, Days: ${days}, Key: ${renewed.key}, By: ${chatId}`);
+                AuditLog.log('KEY_RENEWED', `IP: ${userState.ip}, Days: ${days}, Key: ${maskKey(renewed.key)}, By: ${chatId}`);
                 return this.bot.sendMessage(chatId, `✅ *Key berhasil diperpanjang*\n\n• IP: \`${renewed.ip_address}\`\n• Key: \`${renewed.key}\`\n• Berlaku sampai: ${formatDate(renewed.expires_at)}\n\nKey tetap sama dan dapat digunakan kembali.`, {
                     parse_mode: 'Markdown'
                 });
@@ -647,7 +701,7 @@ class TelegramBotHandler {
                     return this.bot.sendMessage(chatId, '❌ Gagal mengubah IP. Silakan coba lagi.');
                 }
 
-                AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${text}, Key: ${updated.key}, By: ${chatId}`);
+                AuditLog.log('IP_CHANGED', `Old IP: ${oldIp}, New IP: ${text}, Key: ${maskKey(updated.key)}, By: ${chatId}`);
                 return this.bot.sendMessage(chatId, `✅ *IP berhasil diubah!*\n\n• IP Lama: \`${oldIp}\`\n• IP Baru: \`${text}\`\n• Key: \`${updated.key}\`\n• Expired: ${formatDate(updated.expires_at)}\n\nLisensi dan durasi telah dipindahkan ke IP baru.`, {
                     parse_mode: 'Markdown'
                 });
@@ -701,7 +755,7 @@ class TelegramBotHandler {
                     });
                 }
 
-                AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${result.oldKey}, New Key: ${text}, By: ${chatId}`);
+                AuditLog.log('KEY_EDITED', `IP: ${ip}, Old Key: ${maskKey(result.oldKey)}, New Key: ${maskKey(text)}, By: ${chatId}`);
 
                 return this.bot.sendMessage(chatId, `✅ *Key berhasil diubah!*\n\n• IP VPS: \`${ip}\`\n• Key Lama: \`${result.oldKey}\`\n• Key Baru: \`${text}\`\n• Berlaku sampai: ${formatDate(result.data.expires_at)}\n\n⚠️ *Penting untuk VPS aktif:*\nJalankan perintah ini di VPS agar key sinkron:\n\`\`\`\necho "${text}" > /root/.key\n\`\`\``, {
                     parse_mode: 'Markdown'
@@ -757,7 +811,7 @@ class TelegramBotHandler {
                 const newKey = generateApiKey(parseInt(process.env.KEY_LENGTH) || 20);
                 const result = ApiKey.create(newKey, userState.ip, days);
                 
-                AuditLog.log('BOT_REGISTER', `IP: ${userState.ip}, Days: ${days}, Key: ${newKey}, By: ${chatId}`);
+                AuditLog.log('BOT_REGISTER', `IP: ${userState.ip}, Days: ${days}, Key: ${maskKey(newKey)}, By: ${chatId}`);
 
                 // Generate install command
                 const installCmd = generateInstallCommand(userState.ip, newKey);

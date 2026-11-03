@@ -160,12 +160,6 @@ KEY_LENGTH=20
 KEY_PREFIX=zs
 EOF
 
-# Copy installation script from ScriptTunnel repo
-echo -e "${BLUE}Downloading installation script...${NC}"
-mkdir -p "$INSTALL_DIR/resources"
-wget -q -O "$INSTALL_DIR/resources/zidstoretunnel" https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel
-chmod +x "$INSTALL_DIR/resources/zidstoretunnel"
-
 # Start with PM2
 echo -e "${BLUE}[8/8] Starting ZidStore API with PM2...${NC}"
 pm2 delete zidstore-api 2>/dev/null || true

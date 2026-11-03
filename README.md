@@ -91,11 +91,7 @@ cp .env.example .env
 # Edit .env with your values
 ```
 
-3. **Download installation script:**
-```bash
-mkdir -p resources
-wget -O resources/zidstoretunnel https://raw.githubusercontent.com/zidnyzd/ScriptTunnel/main/zidstoretunnel
-```
+3. **Installation script:** served automatically. The API redirects `/?key=...` to the GitHub artifact; no manual download needed.
 
 4. **Start with PM2:**
 ```bash

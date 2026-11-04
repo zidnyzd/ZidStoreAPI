@@ -1,6 +1,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const dgram = require('dgram');
+const crypto = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
 const dbPath = path.join(__dirname, '..', 'database', 'init');
 const { ApiKey, AuditLog, InstallLog, SlowdnsDomain } = require(dbPath);
@@ -468,6 +470,154 @@ async function slowdnsRegister(req, res) {
 }
 
 router.post('/api/slowdns/register', slowdnsRegister);
+
+function normalizeIp(ip) {
+    if (typeof ip !== 'string') return ip;
+    if (ip.startsWith('::ffff:')) {
+        return ip.substring(7);
+    }
+    return ip;
+}
+
+function getAllowedCheckudpPorts() {
+    // Override via env CHECKUDP_PORT_WHITELIST (koma) HANYA UNTUK KEPERLUAN TES
+    if (process.env.CHECKUDP_PORT_WHITELIST) {
+        const ports = String(process.env.CHECKUDP_PORT_WHITELIST)
+            .split(',')
+            .map(p => p.trim())
+            .filter(p => p !== '')
+            .map(p => parseInt(p))
+            .filter(p => !isNaN(p));
+        if (ports.length > 0) return ports;
+    }
+    return [53];
+}
+
+function checkUdpOnce(targetIp, port, payload, timeoutMs) {
+    return new Promise((resolve) => {
+        const socket = dgram.createSocket('udp4');
+        let done = false;
+        const start = Date.now();
+        const timer = setTimeout(() => {
+            if (done) return;
+            done = true;
+            try { socket.close(); } catch (e) {}
+            resolve({ received: false, rtt_ms: null });
+        }, timeoutMs);
+
+        socket.on('message', (msg, rinfo) => {
+            if (done) return;
+            if (rinfo.address !== targetIp) return;
+            if (rinfo.port !== port) return;
+            done = true;
+            const rtt = Date.now() - start;
+            clearTimeout(timer);
+            try { socket.close(); } catch (e) {}
+            resolve({ received: true, data: msg, rtt_ms: rtt });
+        });
+
+        socket.on('error', () => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            try { socket.close(); } catch (e) {}
+            resolve({ received: false, rtt_ms: null });
+        });
+
+        try {
+            socket.send(payload, 0, payload.length, port, targetIp, (err) => {
+                if (err && !done) {
+                    done = true;
+                    clearTimeout(timer);
+                    try { socket.close(); } catch (e) {}
+                    resolve({ received: false, rtt_ms: null });
+                }
+            });
+        } catch (e) {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            try { socket.close(); } catch (e) {}
+            resolve({ received: false, rtt_ms: null });
+        }
+    });
+}
+
+async function checkUdpProbe(targetIp, port) {
+    const timeoutMs = parseInt(process.env.CHECKUDP_TIMEOUT_MS) || 3000;
+    const payload = Buffer.from('ZIDPROBE-' + crypto.randomBytes(4).toString('hex'));
+    let result = await checkUdpOnce(targetIp, port, payload, timeoutMs);
+    if (!result.received) {
+        result = await checkUdpOnce(targetIp, port, payload, timeoutMs);
+    }
+    if (!result.received) {
+        return { open: false, echo: null, rtt_ms: null };
+    }
+    const echo = result.data && result.data.length === payload.length && result.data.equals(payload);
+    return { open: true, echo: !!echo, rtt_ms: result.rtt_ms };
+}
+
+// POST /api/checkudp
+router.post('/api/checkudp', async (req, res) => {
+    const key = req.get('X-API-Key') || req.query.key;
+    const clientIpRaw = req.ip || req.connection.remoteAddress;
+    const clientIp = normalizeIp(clientIpRaw);
+
+    if (!key) {
+        return res.status(400).json({ error: 'missing_key' });
+    }
+
+    const apiKey = ApiKey.findByKey(key);
+    if (!apiKey) {
+        return res.status(403).json({ error: 'invalid_key' });
+    }
+
+    if (new Date(apiKey.expires_at) < new Date()) {
+        return res.status(403).json({ error: 'key_expired' });
+    }
+
+    const apiKeyIp = normalizeIp(apiKey.ip_address);
+    if (apiKey.ip_address && apiKeyIp !== clientIp) {
+        return res.status(403).json({ error: 'ip_mismatch' });
+    }
+
+    const body = req.body || {};
+    const port = body.port;
+
+    const allowedPorts = getAllowedCheckudpPorts();
+    if (typeof port !== 'number' || isNaN(port) || !allowedPorts.includes(port)) {
+        return res.status(400).json({ error: 'invalid_port' });
+    }
+
+    let targetIp = normalizeIp(apiKey.ip_address) || clientIp;
+    if (!targetIp) {
+        return res.status(400).json({ error: 'invalid_target' });
+    }
+
+    const limitResult = rateLimitInstallLog(apiKey.id);
+    if (!limitResult.allowed) {
+        return res.status(429).json({ error: 'rate_limit', retry_after: limitResult.retryAfter });
+    }
+
+    try {
+        const probeResult = await checkUdpProbe(targetIp, port);
+        try {
+            AuditLog.log('CHECKUDP', 'ip=' + targetIp + ' port=' + port + ' open=' + probeResult.open + ' echo=' + probeResult.echo, clientIp);
+        } catch (e) {
+            // ignore audit errors
+        }
+        return res.status(200).json({
+            ok: true,
+            open: probeResult.open,
+            echo: probeResult.echo,
+            rtt_ms: probeResult.rtt_ms,
+            target: targetIp,
+            port: port
+        });
+    } catch (e) {
+        return res.status(500).json({ error: 'internal_error' });
+    }
+});
 
 // GET /api/stats - Get statistics (admin only)
 router.get('/api/stats', (req, res) => {

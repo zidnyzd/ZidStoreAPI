@@ -79,12 +79,16 @@ if [ $status_code -eq 200 ]; then
                 "/etc/gshadow"
                 "/etc/zidstoretunnel.txt"
                 "/etc/slowdns"
+                "/root/.vars"
             )
 
             for file in "${files_to_backup[@]}"; do
                 cp -r $file "$backup_dir/" >/dev/null 2>&1 || { echo "Failed to backup $file"; }
             done
 
+            # Biner DNSTT besar tidak perlu di backup; installer memasang ulang dengan sha terkunci.
+            # Restore cuma butuh identitas: server.key, server.pub, domain, routes.conf.
+            rm -f "$backup_dir/slowdns/dnstt-server" "$backup_dir/slowdns/dnstt-client" 2>/dev/null || true
             # Compress backup directory
             tar -czf "${backup_dir}.tar.gz" -C "$(dirname "$backup_dir")" "$(basename "$backup_dir")" || { echo "Failed to compress backup"; }
             curl -s -F chat_id="$telegram_id" -F document=@"${backup_dir}.tar.gz" "https://api.telegram.org/bot$bot_token/sendDocument" >/dev/null 2>&1
@@ -164,6 +168,19 @@ if [ $status_code -eq 200 ]; then
                     echo "Peringatan: dnstt-server gagal dijalankan kembali setelah restore"
                 fi
             fi
+
+            local files_to_vars=(
+                "/root/restore/*/.vars"
+            )
+            for pattern in "${files_to_vars[@]}"; do
+                matched=0
+                for m in $pattern; do
+                    [ -e "$m" ] || continue
+                    matched=1
+                    cp -r "$m" /root/ >/dev/null 2>&1 || echo "Failed to restore $m"
+                done
+                [ "$matched" -eq 0 ] && echo "Skipped (tidak ada di backup): $pattern"
+            done
 
             # Remove temporary backup directory
             if [ -d "$backup_dir" ]; then

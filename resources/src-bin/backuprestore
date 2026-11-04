@@ -14,7 +14,7 @@ if [ $status_code -eq 200 ]; then
     if [ $expiry_date -gt $current_date ]; then
 
         # Bot Telegram
-        source '/root/.vars'
+        [ -f '/root/.vars' ] && source '/root/.vars' || true
 
         ipv4=$(wget -qO- ipv4.icanhazip.com 2>/dev/null || curl -s ipv4.icanhazip.com || echo "Unable to detect IP")
 
@@ -78,6 +78,7 @@ if [ $status_code -eq 200 ]; then
                 "/etc/shadow"
                 "/etc/gshadow"
                 "/etc/zidstoretunnel.txt"
+                "/etc/slowdns"
             )
 
             for file in "${files_to_backup[@]}"; do
@@ -125,13 +126,26 @@ if [ $status_code -eq 200 ]; then
                 "/root/restore/*/shadow"
                 "/root/restore/*/gshadow"
                 "/root/restore/*/zidstoretunnel.txt"
+                "/root/restore/*/slowdns"
             )
-            for file in "${files_to_restore[@]}"; do
-                cp -r $file /etc/xray/ >/dev/null 2>&1 || { echo "Failed to restore $file"; }
+            for pattern in "${files_to_restore[@]}"; do
+                matched=0
+                for m in $pattern; do
+                    [ -e "$m" ] || continue
+                    matched=1
+                    cp -r "$m" /etc/xray/ >/dev/null 2>&1 || echo "Failed to restore $m"
+                done
+                [ "$matched" -eq 0 ] && echo "Skipped (tidak ada di backup): $pattern"
             done
 
-            for filessh in "${files_to_ssh[@]}"; do
-                cp -r $filessh /etc/ >/dev/null 2>&1 || { echo "Failed to restore $filessh"; }
+            for pattern in "${files_to_ssh[@]}"; do
+                matched=0
+                for m in $pattern; do
+                    [ -e "$m" ] || continue
+                    matched=1
+                    cp -r "$m" /etc/ >/dev/null 2>&1 || echo "Failed to restore $m"
+                done
+                [ "$matched" -eq 0 ] && echo "Skipped (tidak ada di backup): $pattern"
             done
 
             # Remove temporary backup directory

@@ -147,6 +147,13 @@ while true; do
     fi
 done
 
+read -rp "   Kuota data (GB, 0 = unlimited): " quota_gb
+if [[ -z "$quota_gb" ]]; then
+    quota_gb=0
+elif ! [[ "$quota_gb" =~ ^[0-9]+$ ]]; then
+    quota_gb=0
+fi
+
 # Account creation process
 useradd -e $(date -d "$expired days" +"%Y-%m-%d") -s /bin/false -M $user
 exp="$(chage -l $user | grep "Account expires" | awk -F": " '{print $2}')"
@@ -154,6 +161,16 @@ echo -e "$passwd\n$passwd\n" | passwd $user &>/dev/null
 
 if [[ $iplim != "0" ]]; then
     echo "${iplim}" >/etc/ssh/${user}
+fi
+
+# Kuota data (byte); tanpa berkas bila quota 0/kosong (daemon: 0/tidak-ada = unlimited)
+quota_bytes=$((quota_gb * 1024 * 1024 * 1024))
+if [[ $quota_gb -gt 0 ]]; then
+    mkdir -p /etc/ssh/quota /etc/ssh/usage
+    echo "${quota_bytes}" >/etc/ssh/quota/"${user}"
+    echo "0" >/etc/ssh/usage/"${user}"
+    chmod 600 /etc/ssh/quota/"${user}" /etc/ssh/usage/"${user}" 2>/dev/null || true
+    chown root:root /etc/ssh/quota/"${user}" /etc/ssh/usage/"${user}" 2>/dev/null || true
 fi
 echo "### ${user} $(date -d "$expired days" +"%Y-%m-%d")" >>/etc/ssh/.ssh.db
 
@@ -177,7 +194,7 @@ Dropbear WS Port : 443, 109
 SSH WS Port      : 80
 SSH SSL WS Port  : 443
 SSL/TLS Port     : 443
-BadVPN UDP       : 7100, 7300, 7300
+BadVPN UDP       : 7100, 7200, 7300
 ---------------------
 WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf] 
 ---------------------
@@ -203,7 +220,7 @@ echo -e "Dropbear Port    : 443, 109"
 echo -e "SSH WS Port      : 80"
 echo -e "SSH SSL WS Port  : 443"
 echo -e "SSL/TLS Port     : 443"
-echo -e "BadVPN UDP       : 7100, 7300, 7300"
+echo -e "BadVPN UDP       : 7100, 7200, 7300"
 print_rainbow "───────────────────────────"
 echo -e "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"
 print_rainbow "───────────────────────────"
@@ -232,7 +249,7 @@ echo -e ""
     echo "SSH SSL WS Port  : 443"
     echo "SSL/TLS Port     : 443"
     echo "Squid Proxy      : 3128"
-    echo "BadVPN UDP       : 7100, 7300, 7300"
+    echo "BadVPN UDP       : 7100, 7200, 7300"
     echo "SlowDns Public Key: ${pubkey}"
     echo "───────────────────────────"
     echo "WSS Payload      : GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf]"

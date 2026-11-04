@@ -254,7 +254,33 @@ perbarui_ssh() {
 
     # Hitung sisa hari aktif
     days_left=$((($(date -d "$old_exp" +%s) - $(date +%s)) / 86400))
-    echo "${quota}" >/etc/ssh/${username}
+
+    # IP limit tetap ditulis ke /etc/ssh/<user> seperti sebelumnya untuk kompatibilitas limitipssh
+    if [[ -n "${ip_limit:-}" && "${ip_limit}" != "0" ]]; then
+        echo "${ip_limit}" >/etc/ssh/${username}
+    elif [[ -n "${quota:-}" ]]; then
+        # Fallback kompatibel jika api hanya kirim quota
+        echo "${quota}" >/etc/ssh/${username}
+    fi
+
+    # Kuota data ditulis ke /etc/ssh/quota/<user> dalam byte (konversi GB -> byte)
+    if [[ -n "${quota:-}" && "${quota}" != "0" ]]; then
+        if [[ "${quota}" =~ ^[0-9]+$ ]]; then
+            quota_bytes=$((quota * 1024 * 1024 * 1024))
+        else
+            quota_bytes=0
+        fi
+        if (( quota_bytes > 0 )); then
+            mkdir -p /etc/ssh/quota /etc/ssh/usage 2>/dev/null
+            echo "${quota_bytes}" >/etc/ssh/quota/${username}
+            echo "0" >/etc/ssh/usage/${username}
+            chmod 600 /etc/ssh/quota/${username} /etc/ssh/usage/${username} 2>/dev/null || true
+            chown root:root /etc/ssh/quota/${username} /etc/ssh/usage/${username} 2>/dev/null || true
+        fi
+    fi
+
+    # Buka lock jika ter-lock oleh quota-ssh
+    usermod -U "${username}" 2>/dev/null || true
 
     # Hitung tanggal kedaluwarsa baru
     new_exp=$(date -d "$old_exp +${duration} days" +"%Y-%m-%d")
@@ -272,7 +298,8 @@ perbarui_ssh() {
         \"data\": {
             \"username\": \"$username\",
             \"exp\": \"$new_exp\",
-            \"limitip\": \"$quota\"
+            \"limitip\": \"${ip_limit:-${quota}}\",
+            \"quota\": \"${quota:-0}\"
         }
     }"
 }

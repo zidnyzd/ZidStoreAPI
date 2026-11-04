@@ -195,6 +195,11 @@ cat >/etc/xray/vless/$user-grpc.json <<EOF
 EOF
 
 # Create configuration file for OpenClash
+if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then
+  slowdns_host="vl.${ns_domain}"
+else
+  slowdns_host="${ns_domain}"
+fi
 cat >/var/www/html/vless-$user.txt <<-END
 ---------------------
 # Vless WS (CDN) Format
@@ -203,6 +208,8 @@ cat >/var/www/html/vless-$user.txt <<-END
 - name: Vless-$user-WS (CDN)
   type: vless
   server: ${domain}
+  slowdns_host: ${slowdns_host}
+  public_key: ${pubkey}
   port: 443
   uuid: ${uuid}
   cipher: auto
@@ -327,6 +334,8 @@ print_rainbow "    Xray/Vless Account    "
 print_rainbow "───────────────────────────"
 echo -e "Description  : ${user}"
 echo -e "Host Server  : ${domain}"
+if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then echo -e "Slowdns Host : vl.${ns_domain}"; else echo -e "Slowdns Host : ${ns_domain}"; fi
+echo -e "Public Key   : ${pubkey}"
 echo -e "Location     : $city"
 echo -e "Port TLS     : 443"
 echo -e "Port non TLS : 80, 8080"
@@ -356,7 +365,11 @@ echo -e ""
     echo "───────────────────────────"
     echo "description  : ${user}"
     echo "host server  : ${domain}"
-    echo "host xraydns : ${ns_domain}"
+    if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then
+        echo "host xraydns : vl.${ns_domain}"
+    else
+        echo "host xraydns : ${ns_domain}"
+    fi
     echo "location     : $city"
     echo "port tls     : 443"
     echo "port non tls : 80, 8080"

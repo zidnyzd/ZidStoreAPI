@@ -66,6 +66,7 @@ for user in "${data[@]}"; do
     exp2=$(((d1 - d2) / 86400))
     if [[ "$exp2" -le "0" ]]; then
         rm -f /etc/xray/log-createssh-$user.log
+        rm -f "/etc/ssh/quota/${user}" "/etc/ssh/usage/${user}" "/tmp/ssh-quota-pids/${user}" 2>/dev/null || true
         db_tmp=$(mktemp)
         awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' /etc/ssh/.ssh.db >"$db_tmp" && mv "$db_tmp" /etc/ssh/.ssh.db
         userdel -f $user 2>/dev/null

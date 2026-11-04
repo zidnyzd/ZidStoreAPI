@@ -387,6 +387,117 @@ if [ $status_code -eq 200 ]; then
             read -n 1 -s -r -p "Press any key to return to menu"
         }
 
+        # Function to set SSH account quota
+        function set_quota() {
+            clear
+            echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
+            echo -e "${orange}│${green}      SET QUOTA SSH ACCOUNT           ${orange}│${neutral}"
+            echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+            echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
+            NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/ssh/.ssh.db")
+            if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
+                echo -e "${orange}│${neutral}         No registered clients!       ${orange}│${neutral}"
+                echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+                exit 0
+            fi
+            echo -e "${orange}│ ${green}NO  USERNAME         EXPIRY DATE"
+            echo -e "${orange}│ ${neutral}----------------------------------"
+            grep -E "^### " "/etc/ssh/.ssh.db" | cut -d ' ' -f 2-3 | awk '{printf "%-3s %-15s %s\n", NR")", $1, $2}' | while read -r line; do
+                echo -e "${orange}│ ${neutral}$line"
+            done
+            echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+            print_rainbow "─────────────────────────────────────────"
+
+            until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
+                if [[ ${NUMBER_OF_CLIENTS} == '1' ]]; then
+                    read -rp "Select client number [1]: " CLIENT_NUMBER
+                else
+                    read -rp "Select client number [1-${NUMBER_OF_CLIENTS}]: " CLIENT_NUMBER
+                fi
+                if ! [[ ${CLIENT_NUMBER} =~ ^[0-9]+$ ]]; then
+                    echo "Error: Please enter a valid number."
+                    CLIENT_NUMBER=0
+                fi
+            done
+
+            username=$(grep -E "^### " "/etc/ssh/.ssh.db" | cut -d ' ' -f 2 | sed -n "${CLIENT_NUMBER}"p)
+
+            clear
+            echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
+            echo -e "${orange}│${green}      SET QUOTA SSH ACCOUNT           ${orange}│${neutral}"
+            echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+            echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
+            echo -e "${orange}│ ${neutral}USERNAME : ${username}"
+
+            usage_file="/etc/ssh/usage/${username}"
+            quota_file="/etc/ssh/quota/${username}"
+            usage_cur="0GB"
+            if [ -f "$usage_file" ]; then
+                u=$(cat "$usage_file" 2>/dev/null)
+                if [ -n "$u" ] && [ "$u" != "0" ]; then
+                    usage_cur=$(convert_size "$u")
+                else
+                    usage_cur="0GB"
+                fi
+            fi
+            limit_cur="Unlimited"
+            if [ -f "$quota_file" ]; then
+                q=$(cat "$quota_file" 2>/dev/null)
+                if [ -n "$q" ] && [ "$q" != "0" ]; then
+                    limit_cur=$(convert_size "$q")
+                else
+                    limit_cur="Unlimited"
+                fi
+            fi
+            echo -e "${orange}│ ${neutral}USAGE    : ${usage_cur}"
+            echo -e "${orange}│ ${neutral}LIMIT    : ${limit_cur}"
+            echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+
+            while true; do
+                read -rp "Kuota data (GB, 0 = unlimited): " quota_gb
+                if [[ "$quota_gb" == "x" || "$quota_gb" == "X" ]]; then
+                    echo "Cancelled."
+                    read -n 1 -s -r -p "Press any key to return to menu"
+                    return
+                fi
+                if [[ -z "$quota_gb" ]]; then
+                    echo "Error: Please enter a number or 'x' to cancel."
+                    continue
+                fi
+                if ! [[ "$quota_gb" =~ ^[0-9]+$ ]]; then
+                    echo "Error: Please enter a number or 'x' to cancel."
+                    continue
+                fi
+                break
+            done
+
+            if [ ! -d /etc/ssh/quota ]; then
+                mkdir -p /etc/ssh/quota
+            fi
+
+            if (( quota_gb == 0 )); then
+                echo "0" >/etc/ssh/quota/"${username}"
+                quota_new_disp="Unlimited"
+            else
+                quota_bytes=$((quota_gb * 1024 * 1024 * 1024))
+                echo "${quota_bytes}" >/etc/ssh/quota/"${username}"
+                quota_new_disp="${quota_gb}GB"
+            fi
+            chmod 600 "/etc/ssh/quota/${username}" 2>/dev/null || true
+            chown root:root "/etc/ssh/quota/${username}" 2>/dev/null || true
+
+            clear
+            echo -e "${orange}┌──────────────────────────────────────┐${neutral}"
+            echo -e "${orange}│${green}        QUOTA SET SUCCESSFUL           ${orange}│${neutral}"
+            echo -e "${orange}├──────────────────────────────────────┤${neutral}"
+            echo -e "${orange}│ ${neutral}Username   : ${green}$username${neutral}"
+            echo -e "${orange}│ ${neutral}New Limit  : ${green}$quota_new_disp${neutral}"
+            echo -e "${orange}│ ${neutral}Current Usage: ${green}$usage_cur${neutral}"
+            echo -e "${orange}└──────────────────────────────────────┘${neutral}"
+            echo ""
+            read -n 1 -s -r -p "Press any key to return to menu"
+        }
+
         # Function to display SSH members
         function member_ssh() {
             clear
@@ -445,6 +556,30 @@ if [ $status_code -eq 200 ]; then
                 echo -e "${orange}│${neutral} IP LIMIT : $iplimit"
                 echo -e "${orange}│${neutral} DAYS LEFT: $dayleft DAYS"
                 echo -e "${orange}│${neutral} EXPIRES  : $exp"
+
+                usage_file="/etc/ssh/usage/${user}"
+                quota_file="/etc/ssh/quota/${user}"
+                usage="0GB"
+                if [ -f "$usage_file" ]; then
+                    u=$(cat "$usage_file" 2>/dev/null)
+                    if [ -n "$u" ] && [ "$u" != "0" ]; then
+                        usage=$(convert_size "$u")
+                    else
+                        usage="0GB"
+                    fi
+                fi
+                quota="Unlimited"
+                if [ -f "$quota_file" ]; then
+                    q=$(cat "$quota_file" 2>/dev/null)
+                    if [ -n "$q" ] && [ "$q" != "0" ]; then
+                        quota=$(convert_size "$q")
+                    else
+                        quota="Unlimited"
+                    fi
+                fi
+
+                echo -e "${orange}│${neutral} USAGE    : $usage"
+                echo -e "${orange}│${neutral} QUOTA    : $quota"
                 echo -e "${orange}├──────────────────────────────────────┤${neutral}"
             done <<<"$data"
 
@@ -472,13 +607,14 @@ if [ $status_code -eq 200 ]; then
             echo -e "    ${green}9.${neutral} SSH Account Details"
             echo -e "    ${green}10.${neutral} Autokill SSH Account"
             echo -e "    ${green}11.${neutral} Create Trial SSH Account"
+            echo -e "    ${green}12.${neutral} Set Quota SSH Account"
             echo -e "    ${green}x.${neutral} Exit SSH Manager"
             echo -e "${orange}─────────────────────────────────────────${neutral}"
             print_rainbow "─────────────────────────────────────────"
             echo -e "           ${orange}───${green}───${yellow}───${blue}───${purple}───${red}───${neutral}"
             echo -e ""
             echo -e ""
-            read -p " Enter your choice (1-11) or type 'x' to exit: " ssh_choice
+            read -p " Enter your choice (1-12) or type 'x' to exit: " ssh_choice
 
             case $ssh_choice in
             1) addssh ;;
@@ -492,6 +628,7 @@ if [ $status_code -eq 200 ]; then
             9) detail_ssh ;;
             10) autokill_ssh ;;
             11) trialssh ;;
+            12) set_quota ;;
             x | X)
                 echo -e ""
                 echo -e "   ${green}Thank you for using our services.${neutral}"

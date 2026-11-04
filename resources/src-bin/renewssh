@@ -122,11 +122,42 @@ while true; do
     fi
 done
 
+echo ""
+echo -e "${yellow}Quota data (GB, 0 = unlimited) : ${reset}"
+read -p "   Kuota data (GB): " quota_gb
+if [[ -z "$quota_gb" ]]; then
+    quota_gb=0
+elif ! [[ "$quota_gb" =~ ^[0-9]+$ ]]; then
+    quota_gb=0
+fi
+
+quota_bytes=$((quota_gb * 1024 * 1024 * 1024))
+
 if [ ! -d /etc/ssh ]; then
     mkdir -p /etc/ssh
 fi
 
+if [ ! -d /etc/ssh/quota ]; then
+    mkdir -p /etc/ssh/quota /etc/ssh/usage
+fi
+
 echo "${ip_limit}" >/etc/ssh/${user}
+
+# Tulis kuota data ke /etc/ssh/quota/<user> dalam byte; reset usage ke 0
+if (( quota_bytes > 0 )); then
+    echo "${quota_bytes}" >/etc/ssh/quota/${user}
+    echo "0" >/etc/ssh/usage/${user}
+    chmod 600 /etc/ssh/quota/${user} /etc/ssh/usage/${user} 2>/dev/null || true
+    chown root:root /etc/ssh/quota/${user} /etc/ssh/usage/${user} 2>/dev/null || true
+else
+    echo "0" >/etc/ssh/quota/${user}
+    echo "0" >/etc/ssh/usage/${user}
+    chmod 600 /etc/ssh/quota/${user} /etc/ssh/usage/${user} 2>/dev/null || true
+    chown root:root /etc/ssh/quota/${user} /etc/ssh/usage/${user} 2>/dev/null || true
+fi
+
+# Buka suspend bila akun ter-lock karena kuota habis
+usermod -U "$user" 2>/dev/null || true
 
 # Calculate new expiration date
 new_exp=$(date -d "$old_exp +${active_days} days" +"%Y-%m-%d")

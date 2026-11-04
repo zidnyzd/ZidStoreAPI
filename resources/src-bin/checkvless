@@ -70,9 +70,8 @@ check_vless() {
     declare -A log_count
 
     for user in "${user_list[@]}"; do
-        log_file=$(tail -n 150 /var/log/xray/access.log | grep -w "email: ${user}" | grep -v "127.0.0.1")
+        log_file=$(tail -n 150 /var/log/xray/access.log | grep -w "email: ${user}")
         current_time_seconds=$(date +%s.%N)
-        log_count[$user]=$(grep -w "email: ${user}" /var/log/xray/access.log | grep -v "127.0.0.1" | wc -l)
 
         while read -r line; do
             if [[ -n ${line} ]]; then
@@ -85,10 +84,7 @@ check_vless() {
                     time_difference=$(echo "$current_time_seconds - $access_time_seconds" | bc)
 
                     if (($(echo "$time_difference < 10" | bc -l))); then
-                        if [[ -n "${user_ips[$ip_address]}" && "${user_ips[$ip_address]}" != "$user" ]]; then
-                            continue
-                        fi
-                        user_ips[$ip_address]=$user
+                        user_ips["${user}:${ip_address}"]=$user
                         last_access_time["${user}:${ip_address}"]=$access_time
                     fi
                 fi
@@ -97,13 +93,11 @@ check_vless() {
     done
 
     # sort and save results to temporary file
-    for user in "${user_list[@]}"; do
-        for ip_address in "${!user_ips[@]}"; do
-            if [[ "${user_ips[$ip_address]}" == "$user" ]]; then
-                access_time="${last_access_time["${user}:${ip_address}"]}"
-                echo "${user} ${ip_address} ${access_time}"
-            fi
-        done
+    for key in "${!user_ips[@]}"; do
+        user="${key%%:*}"
+        ip_address="${key#*:}"
+        access_time="${last_access_time[$key]}"
+        echo "${user} ${ip_address} ${access_time}"
     done | sort -k1,1 -k3,3r >/tmp/rotation_vless
 
     # display results

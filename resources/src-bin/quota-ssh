@@ -1,0 +1,516 @@
+#!/bin/bash
+#
+# quota-ssh - Daemon penghitungan kuota data SSH/SlowDNS
+# Sumber data : /proc/<pid>/io (rchar+wchar) untuk sshd dan dropbear,
+#               termasuk proses anak relay dari sesi (BFS dari pid auth.log
+#               melalui /proc/<pid>/stat, comm sshd/dropbear)
+# Normalisasi : delta_total dari semua pid sesi dibagi 2 (pembagian integer)
+#               agar 1 byte jaringan = 1 satuan metrik, setara metrik kuota Xray
+# Enforcement : 100% kuota = hapus akun (konsisten daemon Xray), bukan lock
+# Pola         : serupa daemon quota Xray (30 detik, notifikasi Telegram, enforcement)
+#
+# Env test (opsional):
+#   QSSH_ROOT          prefix path untuk /etc/ssh dan /tmp (mis: /tmp/qsshroot)
+#   QSSH_IO_ROOT       root filesystem palsu untuk /proc/<pid>/io
+#   QSSH_AUTH_LOG      path auth.log (override otomatis)
+#   QSSH_DRY_RUN=1     jangan panggil curl/userdel/pkill/kill, hanya catat
+#
+# Catatan: default tanpa env = produksi. Fail-open untuk error non-kritis.
+
+# --------------------------- Konstanta ---------------------------
+readonly QSSH_CYCLE_SEC="${1:-30}"
+readonly QSSH_LIMIT_DIR="${QSSH_ROOT:-}/etc/ssh/quota/"
+readonly QSSH_USAGE_DIR="${QSSH_ROOT:-}/etc/ssh/usage/"
+readonly QSSH_PID_DIR="${QSSH_ROOT:-}/tmp/ssh-quota-pids/"
+readonly QSSH_DEFAULT_AUTH_LOG="/var/log/auth.log"
+readonly QSSH_FALLBACK_AUTH_LOG="/var/log/secure"
+readonly QSSH_TELEGRAM_VARS="${QSSH_ROOT:-}/root/.vars"
+readonly QSSH_LOG_FILE="${QSSH_ROOT:-}/tmp/quota-ssh.log"
+readonly QSSH_WARN_PERCENT=90
+readonly QSSH_DISABLE_PERCENT=100
+readonly QSSH_FILE_MODE="600"
+readonly QSSH_DIR_MODE="755"
+readonly QSSH_SSH_LOGIN_DB="/tmp/login-db-ssh.txt"
+readonly QSSH_DROPBEAR_LOGIN_DB="/tmp/login-db-dropbear.txt"
+readonly QSSH_SSH_DB="${QSSH_ROOT:-}/etc/ssh/.ssh.db"
+
+# --------------------------- Util ---------------------------
+qssh_mkdir() {
+    local d="$1"
+    if [[ ! -d "$d" ]]; then
+        mkdir -p "$d" 2>/dev/null || return 0
+    fi
+    chmod "${QSSH_DIR_MODE}" "$d" 2>/dev/null || true
+    chown root:root "$d" 2>/dev/null || true
+}
+
+qssh_log() {
+    local msg="$1"
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >> "${QSSH_LOG_FILE}" 2>/dev/null || true
+}
+
+qssh_file_write_atomic() {
+    local target="$1"
+    local value="$2"
+    local tmp
+    tmp=$(mktemp "${QSSH_ROOT:-/tmp}/qssh.XXXXXX") || return 1
+    printf '%s\n' "$value" > "$tmp"
+    mv -f "$tmp" "$target" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    chmod "${QSSH_FILE_MODE}" "$target" 2>/dev/null || true
+    chown root:root "$target" 2>/dev/null || true
+}
+
+# --------------------------- Telegram ---------------------------
+qssh_telegram_send() {
+    local text="$1"
+    if [[ "${QSSH_DRY_RUN:-0}" == "1" ]]; then
+        qssh_log "[DRY_RUN] Telegram notification queued"
+        return 0
+    fi
+    if [[ ! -f "${QSSH_TELEGRAM_VARS}" ]]; then
+        qssh_log "Telegram vars file not found"
+        return 0
+    fi
+    local bot_token telegram_id
+    bot_token=$(grep -E '^bot_token=' "${QSSH_TELEGRAM_VARS}" 2>/dev/null | head -1 | cut -d= -f2-)
+    telegram_id=$(grep -E '^telegram_id=' "${QSSH_TELEGRAM_VARS}" 2>/dev/null | head -1 | cut -d= -f2-)
+    if [[ -z "${bot_token}" || -z "${telegram_id}" ]]; then
+        qssh_log "Telegram credentials missing"
+        return 0
+    fi
+    curl -s -4 --connect-timeout 5 --max-time 10 -X POST "https://api.telegram.org/bot${bot_token}/sendMessage" \
+        -d "chat_id=${telegram_id}" \
+        -d "parse_mode=HTML" \
+        -d "text=${text}" >/dev/null 2>&1 || qssh_log "Telegram send failed"
+}
+
+qssh_telegram_exceeded() {
+    local user="$1"
+    local usage="$2"
+    local limit="$3"
+    local readable_usage
+    local readable_limit
+    readable_usage=$(qssh_convert_size "$usage")
+    readable_limit=$(qssh_convert_size "$limit")
+    local message="
+<b>━━━━━━━━━━━━━━━━━━</b> 
+<b>🔔 SSH NOTIFICATION </b>
+<b>🚫 Penggunaan Kuota</b>
+<b>━━━━━━━━━━━━━━━━━━</b> 
+<b>👤 USERNAME :</b> <code>${user}</code>
+<b>📊 TOTAL PENGGUNAAN :</b> <code>${readable_usage}</code>
+<b>🔒 BATAS PENGGUNAAN :</b> <code>${readable_limit}</code>
+<b>⚠️ Status :</b> <code>akun dihapus (kuota habis)</code>
+<b>━━━━━━━━━━━━━━━━━━</b> 
+"
+    qssh_telegram_send "$message"
+}
+
+qssh_telegram_warning() {
+    local user="$1"
+    local usage="$2"
+    local limit="$3"
+    local readable_usage
+    local readable_limit
+    readable_usage=$(qssh_convert_size "$usage")
+    readable_limit=$(qssh_convert_size "$limit")
+    local message="
+<b>━━━━━━━━━━━━━━━━━━</b> 
+<b>🔔 SSH NOTIFICATION </b>
+<b>⚠️ Peringatan Kuota</b>
+<b>━━━━━━━━━━━━━━━━━━</b> 
+<b>👤 USERNAME :</b> <code>${user}</code>
+<b>📊 TOTAL PENGGUNAAN :</b> <code>${readable_usage}</code>
+<b>🔒 BATAS PENGGUNAAN :</b> <code>${readable_limit}</code>
+<b>━━━━━━━━━━━━━━━━━━</b> 
+"
+    qssh_telegram_send "$message"
+}
+
+# --------------------------- Konversi ---------------------------
+qssh_convert_size() {
+    local -i bytes="${1:-0}"
+    if (( bytes < 1024 )); then
+        echo "${bytes}B"
+    elif (( bytes < 1048576 )); then
+        echo "$(((bytes + 1023) / 1024))KB"
+    elif (( bytes < 1073741824 )); then
+        echo "$(((bytes + 1048575) / 1048576))MB"
+    else
+        echo "$(((bytes + 1073741823) / 1073741824))GB"
+    fi
+}
+
+qssh_parse_bytes() {
+    local s="$1"
+    if [[ "$s" =~ ^[0-9]+$ ]]; then
+        echo "$s"
+        return 0
+    fi
+    echo "0"
+    return 1
+}
+
+# --------------------------- Enforcement ---------------------------
+qssh_marker_path() {
+    printf '%s%s.%s' "${QSSH_PID_DIR}" "$1" "$2"
+}
+
+qssh_marker_exists() {
+    local marker
+    marker=$(qssh_marker_path "$1" "$2")
+    [[ -f "$marker" ]]
+}
+
+qssh_marker_create() {
+    local marker
+    marker=$(qssh_marker_path "$1" "$2")
+    qssh_file_write_atomic "$marker" "$3" || qssh_log "Failed to write marker ${marker}"
+}
+
+qssh_marker_clear() {
+    local marker
+    marker=$(qssh_marker_path "$1" "$2")
+    rm -f "$marker" 2>/dev/null || true
+}
+
+qssh_enforce() {
+    local user="$1"
+    local limit="$2"
+    local usage="$3"
+    local warn_threshold=$(( limit * QSSH_WARN_PERCENT / 100 ))
+    local disable_threshold=$(( limit * QSSH_DISABLE_PERCENT / 100 ))
+
+    if (( usage >= disable_threshold )); then
+        qssh_log "[ENFORCE] Deleting user ${user} (usage=${usage} limit=${limit})"
+        if [[ "${QSSH_DRY_RUN:-0}" == "1" ]]; then
+            qssh_log "[DRY_RUN] would run: pkill -u ${user}"
+            qssh_log "[DRY_RUN] would run: userdel -f ${user}"
+            qssh_log "[DRY_RUN] would run: cleanup /etc/ssh/.ssh.db /etc/ssh/${user} /etc/ssh/quota/${user} /etc/ssh/usage/${user} /tmp/ssh-quota-pids/${user} /tmp/ssh-quota-pids/${user}.* /etc/xray/log-createssh-${user}.log"
+        else
+            pkill -u "$user" 2>/dev/null || true
+            userdel -f "$user" 2>/dev/null || qssh_log "userdel -f failed for ${user}"
+if [[ -f "${QSSH_SSH_DB}" ]]; then
+                local db_tmp
+                db_tmp=$(mktemp "${QSSH_ROOT:-/tmp}/qsshdb.XXXXXX") || db_tmp=""
+                if [[ -n "$db_tmp" ]]; then
+                    if awk -v user="$user" '$1 == "###" && $2 == user { next } { print }' "${QSSH_SSH_DB}" >"$db_tmp"; then
+                        mv "$db_tmp" "${QSSH_SSH_DB}" || rm -f "$db_tmp"
+                    else
+                        rm -f "$db_tmp"
+                    fi
+                fi
+            fi
+            rm -f "${QSSH_ROOT:-}/etc/ssh/${user}" 2>/dev/null || true
+            rm -f "${QSSH_ROOT:-}/etc/ssh/quota/${user}" "${QSSH_ROOT:-}/etc/ssh/usage/${user}" 2>/dev/null || true
+            rm -f "${QSSH_ROOT:-}/tmp/ssh-quota-pids/${user}" 2>/dev/null || true
+            rm -f "${QSSH_ROOT:-}/tmp/ssh-quota-pids/${user}".* 2>/dev/null || true
+            rm -f "${QSSH_ROOT:-}/etc/xray/log-createssh-${user}.log" 2>/dev/null || true
+        fi
+        if qssh_marker_exists "$user" "exceeded"; then
+            qssh_log "[ENFORCE] Exceeded notification already sent for ${user}, skipping repeat"
+        else
+            qssh_telegram_exceeded "$user" "$usage" "$limit"
+            qssh_marker_create "$user" "exceeded" "$usage"
+        fi
+    elif (( usage >= warn_threshold )); then
+        qssh_log "[ENFORCE] Warning user ${user} (usage=${usage} limit=${limit})"
+        if qssh_marker_exists "$user" "warned"; then
+            qssh_log "[ENFORCE] Warning notification already sent for ${user}, skipping repeat"
+        else
+            qssh_telegram_warning "$user" "$usage" "$limit"
+            qssh_marker_create "$user" "warned" "$usage"
+        fi
+    fi
+}
+
+# --------------------------- IO ---------------------------
+qssh_read_proc_io() {
+    local pid="$1"
+    local io_file="${QSSH_IO_ROOT:-}/proc/${pid}/io"
+    if [[ ! -r "$io_file" ]]; then
+        echo "0"
+        return 1
+    fi
+    local rchar wchar
+    rchar=$(grep -E '^rchar:' "$io_file" 2>/dev/null | head -1 | awk '{print $2}')
+    wchar=$(grep -E '^wchar:' "$io_file" 2>/dev/null | head -1 | awk '{print $2}')
+    if [[ -z "$rchar" || -z "$wchar" ]]; then
+        echo "0"
+        return 1
+    fi
+    echo $(( rchar + wchar ))
+    return 0
+}
+
+# --------------------------- Auth log parsing ---------------------------
+qssh_resolve_auth_log() {
+    if [[ -n "${QSSH_AUTH_LOG:-}" && -f "${QSSH_AUTH_LOG}" ]]; then
+        echo "${QSSH_AUTH_LOG}"
+        return 0
+    fi
+    if [[ -f "${QSSH_DEFAULT_AUTH_LOG}" ]]; then
+        echo "${QSSH_DEFAULT_AUTH_LOG}"
+        return 0
+    fi
+    if [[ -f "${QSSH_FALLBACK_AUTH_LOG}" ]]; then
+        echo "${QSSH_FALLBACK_AUTH_LOG}"
+        return 0
+    fi
+    return 1
+}
+
+qssh_parse_sshd_sessions() {
+    local auth_log="$1"
+    local output_file="$2"
+    : > "$output_file"
+    grep -E 'sshd(-session)?\[' "$auth_log" 2>/dev/null | grep -F "Accepted password for" > "$output_file" || true
+}
+
+qssh_parse_dropbear_sessions() {
+    local auth_log="$1"
+    local output_file="$2"
+    : > "$output_file"
+    grep -E 'dropbear\[' "$auth_log" 2>/dev/null | grep -F "Password auth succeeded" > "$output_file" || true
+}
+
+qssh_extract_sshd_pid_user_ip() {
+    local line="$1"
+    local pid user ip
+    pid=$(printf '%s' "$line" | sed -n 's/.*sshd\(-session\)\?\[\([0-9]\+\)\].*/\2/p')
+    user=$(printf '%s' "$line" | sed -n 's/.*for \([A-Za-z0-9_-]\+\).*/\1/p' | head -1)
+    ip=$(printf '%s' "$line" | sed -n 's/.*from \([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' | head -1)
+    echo "${pid} ${user} ${ip}"
+}
+
+qssh_extract_dropbear_pid_user_ip() {
+    local line="$1"
+    local pid user ip
+    pid=$(printf '%s' "$line" | sed -n 's/.*dropbear\[\([0-9]\+\)\].*/\1/p')
+    user=$(printf '%s' "$line" | sed -n "s/.*for '\([A-Za-z0-9_-]\+\)'.*/\1/p" | head -1)
+    ip=$(printf '%s' "$line" | sed -n 's/.*from \([0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p' | head -1)
+    echo "${pid} ${user} ${ip}"
+}
+
+# --------------------------- PID tracking ---------------------------
+qssh_persist_pids() {
+    local user="$1"
+    shift
+    local pids=("$@")
+    local pid_file="${QSSH_PID_DIR}${user}"
+    local existing=""
+    if [[ -f "$pid_file" ]]; then
+        existing=$(cat "$pid_file" 2>/dev/null || true)
+    fi
+    local combined=""
+    if [[ -n "$existing" ]]; then
+        combined="$existing"$'\n'
+    fi
+    for pid in "${pids[@]}"; do
+        [[ -z "$pid" ]] && continue
+        if [[ -d "${QSSH_IO_ROOT:-}/proc/${pid}" ]]; then
+            combined+="${pid}"$'\n'
+        fi
+    done
+    if [[ -n "$combined" ]]; then
+        printf '%s' "$combined" | awk 'NF' | sort -u > "$pid_file" 2>/dev/null || true
+    else
+        rm -f "$pid_file" 2>/dev/null || true
+    fi
+}
+
+# --------------------------- Session set (BFS turunan sshd/dropbear) ---------------------------
+# Bangun peta ppid+comm dari ${QSSH_IO_ROOT:-}/proc/*/stat, lalu BFS dari root
+# pids. Hanya turunan dengan comm sshd atau dropbear yang diikutkan; turunan
+# lain (mis. bash/dd) diabaikan agar sesuai desain (hanya proses relay sshd).
+qssh_build_session_set() {
+    local -A comm_of=() children=() seen=()
+    local d line pid comm rest ppid c
+
+    for d in "${QSSH_IO_ROOT:-}"/proc/*/stat; do
+        [[ -f "$d" ]] || continue
+        line=$(cat "$d" 2>/dev/null) || continue
+        [[ -n "$line" ]] || continue
+        pid=${line%% *}
+        [[ -z "$pid" ]] && continue
+        # comm = teks antara '(' pertama dan ')' terakhir
+        local tmp="${line#*(}"
+        comm="${tmp%\)*}"
+        # Setelah ") " -> state lalu ppid (state tidak dibutuhkan)
+        rest="${line#*) }"
+        rest="${rest#* }"
+        ppid="${rest%% *}"
+        [[ -z "$ppid" ]] && ppid=0
+        comm_of["$pid"]="$comm"
+        children["$ppid"]+="$pid "
+    done
+
+    local -a queue=("$@")
+    local p
+    for p in "${queue[@]}"; do
+        [[ -n "$p" ]] && seen["$p"]=1
+    done
+    local i=0
+    while [[ $i -lt ${#queue[@]} ]]; do
+        local cur="${queue[$i]}"
+        ((i++))
+        for c in ${children["$cur"]:-}; do
+            [[ -z "$c" ]] && continue
+            if [[ "${comm_of[$c]:-}" == "sshd" || "${comm_of[$c]:-}" == "dropbear" ]]; then
+                if [[ -z "${seen[$c]:-}" ]]; then
+                    seen["$c"]=1
+                    queue+=("$c")
+                fi
+            fi
+        done
+    done
+
+    local out=""
+    for p in "${queue[@]}"; do
+        [[ -n "$p" ]] && out+="$p "
+    done
+    printf '%s' "$out"
+}
+
+# --------------------------- Cycle ---------------------------
+qssh_run_once() {
+    local auth_log
+    auth_log=$(qssh_resolve_auth_log) || { qssh_log "No auth log found"; return 0; }
+
+    qssh_mkdir "${QSSH_LIMIT_DIR}"
+    qssh_mkdir "${QSSH_USAGE_DIR}"
+    qssh_mkdir "${QSSH_PID_DIR}"
+
+    qssh_parse_sshd_sessions "$auth_log" "${QSSH_SSH_LOGIN_DB}"
+    qssh_parse_dropbear_sessions "$auth_log" "${QSSH_DROPBEAR_LOGIN_DB}"
+
+    # Kumpulkan mapping user -> pid
+    declare -A user_to_pids=()
+
+    if [[ -s "${QSSH_SSH_LOGIN_DB}" ]]; then
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            read -r pid user ip <<< "$(qssh_extract_sshd_pid_user_ip "$line")"
+            if [[ -n "$pid" && -n "$user" ]]; then
+                user_to_pids["$user"]+="$pid "
+            fi
+        done < "${QSSH_SSH_LOGIN_DB}"
+    fi
+
+    if [[ -s "${QSSH_DROPBEAR_LOGIN_DB}" ]]; then
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            read -r pid user ip <<< "$(qssh_extract_dropbear_pid_user_ip "$line")"
+            if [[ -n "$pid" && -n "$user" ]]; then
+                user_to_pids["$user"]+="$pid "
+            fi
+        done < "${QSSH_DROPBEAR_LOGIN_DB}"
+    fi
+
+    # Proses per user
+    local users_checked=0
+    for user in "${!user_to_pids[@]}"; do
+        local limit_file="${QSSH_LIMIT_DIR}${user}"
+        local usage_file="${QSSH_USAGE_DIR}${user}"
+        if [[ ! -f "$limit_file" ]]; then
+            qssh_log "[SKIP] No quota file for user ${user}"
+            continue
+        fi
+        local limit
+        limit=$(cat "$limit_file" 2>/dev/null || echo "0")
+        limit=$(qssh_parse_bytes "$limit")
+        if [[ "$limit" == "0" ]]; then
+            qssh_log "[SKIP] Zero limit for user ${user}"
+            continue
+        fi
+
+        local pids_str="${user_to_pids[$user]}"
+        read -ra root_pids <<< "$pids_str"
+        qssh_persist_pids "$user" "${root_pids[@]}"
+
+        # Bangun "session pid set" = root + seluruh turunan proses yang comm-nya
+        # sshd/dropbear (BFS dari root_pids), semua akses /proc dibaca dari
+        # ${QSSH_IO_ROOT:-}/proc. Turunan non-sshd/dropbear (mis. shell/dd)
+        # tidak ikut dihitung sesuai desain.
+        local session_pids
+        session_pids=$(qssh_build_session_set "${root_pids[@]}")
+        read -ra session_arr <<< "$session_pids"
+
+        local current_usage=0
+        if [[ -f "$usage_file" ]]; then
+            current_usage=$(cat "$usage_file" 2>/dev/null || echo "0")
+            current_usage=$(qssh_parse_bytes "$current_usage")
+        fi
+
+        local delta_raw=0
+        for pid in "${session_arr[@]}"; do
+            [[ -z "$pid" ]] && continue
+            local io_now
+            io_now=$(qssh_read_proc_io "$pid") || continue
+            local prev_file="${QSSH_PID_DIR}${user}.${pid}.io"
+            local prev=0
+            if [[ -f "$prev_file" ]]; then
+                prev=$(cat "$prev_file" 2>/dev/null || echo "0")
+                prev=$(qssh_parse_bytes "$prev")
+            fi
+            if (( io_now >= prev )); then
+                local delta=$(( io_now - prev ))
+                (( delta_raw += delta ))
+            fi
+            printf '%s\n' "$io_now" > "$prev_file" 2>/dev/null || true
+        done
+
+        # 1 byte jaringan melintasi relay sshd = 2 operasi syscall (socket + pty),
+        # rchar+wchar ~2x byte jaringan; /2 agar setara metrik kuota Xray.
+        local delta_added=$(( delta_raw / 2 ))
+        local new_usage=$(( current_usage + delta_added ))
+        qssh_file_write_atomic "$usage_file" "$new_usage" || qssh_log "Failed to write usage for ${user}"
+        qssh_log "[OK] user=${user} raw=${delta_raw} added=${delta_added} usage=${new_usage} limit=${limit}"
+        (( users_checked++ ))
+
+        # Self-clear marker: reset saat usage kembali di bawah ambang warning
+        local warn_threshold=$(( limit * QSSH_WARN_PERCENT / 100 ))
+        if (( new_usage < warn_threshold )); then
+            qssh_marker_clear "$user" "warned"
+            qssh_marker_clear "$user" "exceeded"
+        fi
+
+        qssh_enforce "$user" "$limit" "$new_usage"
+    done
+
+    # Bersihkan pid file untuk user yang tidak ada di siklus ini
+    if [[ -d "${QSSH_PID_DIR}" ]]; then
+        local active_users
+        active_users=$(printf '%s\n' "${!user_to_pids[@]}" | sort)
+        local pid_file
+        for pid_file in "${QSSH_PID_DIR}"/*; do
+            [[ -e "$pid_file" ]] || continue
+            local base
+            base=$(basename "$pid_file")
+            # Jangan hapus berkas snapshot io per-PID (*.io)
+            [[ "$base" == *.* ]] && continue
+            if ! grep -q "^${base}$" <<< "$active_users" 2>/dev/null; then
+                rm -f "$pid_file" 2>/dev/null || true
+                rm -f "${QSSH_PID_DIR}/${base}."* 2>/dev/null || true
+            fi
+        done
+    fi
+
+    qssh_log "[CYCLE] checked=${users_checked} active_users=${#user_to_pids[@]}"
+}
+
+qssh_run_loop() {
+    qssh_log "[START] cycle=${QSSH_CYCLE_SEC}s"
+    while true; do
+        qssh_run_once || true
+        sleep "${QSSH_CYCLE_SEC}" || break
+    done
+}
+
+# --------------------------- Main ---------------------------
+if [[ "${1:-}" == "--once" ]]; then
+    qssh_run_once
+    exit 0
+fi
+
+qssh_run_loop

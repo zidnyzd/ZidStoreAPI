@@ -20,6 +20,20 @@ if [ $status_code -eq 200 ]; then
         orange="\e[38;5;130m"
         bright_green="\e[92;1m"
 
+        # function to convert bytes to a more readable format
+        convert_size() {
+            local -i bytes=$1
+            if [[ $bytes -lt 1024 ]]; then
+                echo "${bytes}B"
+            elif [[ $bytes -lt 1048576 ]]; then
+                echo "$(((bytes + 1023) / 1024))KB"
+            elif [[ $bytes -lt 1073741824 ]]; then
+                echo "$(((bytes + 1048575) / 1048576))MB"
+            else
+                echo "$(((bytes + 1073741823) / 1073741824))GB"
+            fi
+        }
+
         # Menentukan file log
         if [ -e "/var/log/auth.log" ]; then
             LOG_FILE="/var/log/auth.log"
@@ -96,6 +110,28 @@ if [ $status_code -eq 200 ]; then
                                 echo -e "${red} CONNECTION DETAILS:${normal}"
                                 echo -e "${orange}┌───────────────────────────────────────┐${normal}"
                                 echo -e "${orange}│${normal} USER: ${user}"
+                                usage_file="/etc/ssh/usage/${user}"
+                                quota_file="/etc/ssh/quota/${user}"
+                                usage="0GB"
+                                if [ -f "$usage_file" ]; then
+                                    u=$(cat "$usage_file" 2>/dev/null)
+                                    if [ -n "$u" ] && [ "$u" != "0" ]; then
+                                        usage=$(convert_size "$u")
+                                    else
+                                        usage="0GB"
+                                    fi
+                                fi
+                                quota="Unlimited"
+                                if [ -f "$quota_file" ]; then
+                                    q=$(cat "$quota_file" 2>/dev/null)
+                                    if [ -n "$q" ] && [ "$q" != "0" ]; then
+                                        quota=$(convert_size "$q")
+                                    else
+                                        quota="Unlimited"
+                                    fi
+                                fi
+                                echo -e "${orange}│${normal} USAGE: ${usage}"
+                                echo -e "${orange}│${normal} QUOTA: ${quota}"
                                 ip_limit=$(cat /etc/ssh/${user})
                                 if [[ "$ip_limit" -eq 0 ]]; then
                                     echo -e "${orange}│${normal} IP LIMIT: Unlimited"

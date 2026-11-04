@@ -141,7 +141,7 @@ if [ $status_code -eq 200 ]; then
             echo -e "   ${green}• ${neutral}SCRIPT KEY : $(cat /root/.key || echo "Unable to retrieve Script ID")"
             echo -e "   ${green}• ${neutral}SCRIPT EXP : $remaining_days DAYS REMAINING"
             print_rainbow "   └─────────────────────────────────────────┘"
-            echo -e "            ${green}SCRIPT VERSION: V1.0.3 LTS${neutral}"
+            echo -e "            ${green}SCRIPT VERSION: V1.0.4 LTS${neutral}"
             echo -e "              ${orange}───${green}───${yellow}───${blue}───${purple}───${red}───${neutral}"
             echo -e ""
             echo -e ""

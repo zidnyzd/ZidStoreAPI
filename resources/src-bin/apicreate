@@ -32,6 +32,11 @@ if [ $status_code -eq 200 ]; then
     else
       ns_domain="NS Domain not found"
     fi
+    if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then
+      slowdns_host_vm="vm.${ns_domain}"; slowdns_host_vl="vl.${ns_domain}"; slowdns_host_tr="tr.${ns_domain}"; slowdns_host_ssh="${ns_domain}"
+    else
+      slowdns_host_vm="$ns_domain"; slowdns_host_vl="$ns_domain"; slowdns_host_tr="$ns_domain"; slowdns_host_ssh="$ns_domain"
+    fi
     city=$(get_config_info_123 "/etc/xray/city" "Location not found")
     public_key=$(get_config_info_123 "/etc/slowdns/server.pub" "Public key not found")
     uuid=$(cat /proc/sys/kernel/random/uuid)
@@ -217,6 +222,7 @@ END
             \"ip_limit\": \"$ip_limit\",
             \"domain\": \"$domain\",
             \"ns_domain\": \"$ns_domain\",
+            \"slowdns_host\": \"$slowdns_host_vm\",
             \"city\": \"$city\",
             \"pubkey\": \"$public_key\",
             \"vmess_tls_link\": \"$vmess_tls_link\",
@@ -339,6 +345,7 @@ END
             \"ip_limit\": \"$ip_limit\",
             \"domain\": \"$domain\",
             \"ns_domain\": \"$ns_domain\",
+            \"slowdns_host\": \"$slowdns_host_vl\",
             \"city\": \"$city\",
             \"pubkey\": \"$public_key\",
             \"vless_tls_link\": \"$vless_tls_link\",
@@ -452,6 +459,7 @@ END
             \"ip_limit\": \"$ip_limit\",
             \"domain\": \"$domain\",
             \"ns_domain\": \"$ns_domain\",
+            \"slowdns_host\": \"$slowdns_host_tr\",
             \"city\": \"$city\",
             \"pubkey\": \"$public_key\",
             \"trojan_tls_link\": \"$trojan_tls_link\",
@@ -781,7 +789,7 @@ Dropbear WS Port : 443, 109
 SSH WS Port      : 80
 SSH SSL WS Port  : 443
 SSL/TLS Port     : 443
-BadVPN UDP       : 7100, 7300, 7300
+BadVPN UDP       : 7100, 7200, 7300
 ---------------------
 WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websocket[crlf][crlf] 
 ---------------------
@@ -798,6 +806,7 @@ END
             \"ip_limit\": \"$ip_limit\",
             \"domain\": \"$domain\",
             \"ns_domain\": \"$ns_domain\",
+            \"slowdns_host\": \"$slowdns_host_ssh\",
             \"city\": \"$city\",
             \"pubkey\": \"$public_key\"
         }

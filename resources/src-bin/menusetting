@@ -397,7 +397,9 @@ if [ $status_code -eq 200 ]; then
             printf '%s\n' "$new_domain" > /etc/xray/dns
 
             if [ -f /etc/systemd/system/dnstt-server.service ]; then
-                sed -i "s|^ExecStart=.*|ExecStart=/etc/slowdns/dnstt-server -udp 0.0.0.0:5300 -privkey-file /etc/slowdns/server.key $new_domain 127.0.0.1:22|" /etc/systemd/system/dnstt-server.service
+                printf '%s 127.0.0.1:22\nvm.%s 127.0.0.1:10002\nvl.%s 127.0.0.1:10001\ntr.%s 127.0.0.1:10003\n' "$new_domain" "$new_domain" "$new_domain" "$new_domain" > /etc/slowdns/routes.conf
+                chmod 644 /etc/slowdns/routes.conf
+                sed -i "s|^ExecStart=.*|ExecStart=/etc/slowdns/dnstt-server -udp 0.0.0.0:5300 -privkey-file /etc/slowdns/server.key -routes-file /etc/slowdns/routes.conf|" /etc/systemd/system/dnstt-server.service
                 systemctl daemon-reload
                 systemctl restart dnstt-server
                 sleep 1

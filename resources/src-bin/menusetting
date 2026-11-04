@@ -589,10 +589,12 @@ if [ $status_code -eq 200 ]; then
                     rm -f /etc/systemd/system/dnstt-server.service
                     systemctl daemon-reload 2>/dev/null
                     systemctl reset-failed dnstt-server 2>/dev/null || true
+                    touch /etc/slowdns/disabled
+                    chmod 644 /etc/slowdns/disabled 2>/dev/null
                     echo -e ""
                     echo -e "  ${green}SlowDNS dimatikan${neutral}"
                     echo -e "  ${yellow}Kunci + biner tetap disimpan; nyalakan lagi lewat opsi ini.${neutral}"
-                    echo -e "  ${yellow}Status OFF akan bertahan pada update berikutnya.${neutral}"
+                    echo -e "  ${yellow}Update berikutnya tidak akan mengaktifkannya kembali.${neutral}"
                     echo -e ""
                     read -n 1 -s -r -p "Press any key to return to the menu"
                     return
@@ -603,8 +605,13 @@ if [ $status_code -eq 200 ]; then
                         read -n 1 -s -r -p "Press any key to return to the menu"
                         return
                     fi
+                    rm -f /etc/slowdns/disabled
                     if [ -f /etc/slowdns/domain.disabled ]; then
-                        mv -f /etc/slowdns/domain.disabled /etc/slowdns/domain 2>/dev/null
+                        if [ ! -f /etc/slowdns/domain ]; then
+                            mv -f /etc/slowdns/domain.disabled /etc/slowdns/domain 2>/dev/null
+                        else
+                            rm -f /etc/slowdns/domain.disabled
+                        fi
                     fi
                     if [ ! -f /etc/slowdns/domain ]; then
                         read -p "  Masukkan domain SlowDNS (mis. sub.domain.com): " dom
@@ -622,6 +629,7 @@ if [ $status_code -eq 200 ]; then
                     domain=$(tr -d '[:space:]' 2>/dev/null < /etc/slowdns/domain)
                     printf '%s 127.0.0.1:22\nvm.%s 127.0.0.1:10002\nvl.%s 127.0.0.1:10001\ntr.%s 127.0.0.1:10003\n' "$domain" "$domain" "$domain" "$domain" > /etc/slowdns/routes.conf
                     chmod 644 /etc/slowdns/routes.conf
+                    rm -f /etc/slowdns/routes.conf.disabled
                     cat > /etc/systemd/system/dnstt-server.service <<'EOFUNIT'
 [Unit]
 Description=ZidStore Tunnel SlowDNS Server (multi-route)

@@ -409,7 +409,7 @@ if [ $status_code -eq 200 ]; then
                     echo -e "  ${red}dnstt-server: BAD${neutral}"
                 fi
             else
-                echo -e "  ${yellow}dnstt-server belum terpasang; domain disimpan dan akan dipakai saat instalasi/upgrade berikutnya${neutral}"
+                echo -e "  ${yellow}dnstt-server belum terpasang; domain disimpan dan akan dipakai saat instalasi/upgrade berikutnya (nyalakan kapan saja lewat opsi 14)${neutral}"
             fi
 
             echo -e ""
@@ -554,6 +554,117 @@ if [ $status_code -eq 200 ]; then
             esac
         }
 
+        toggle_slowdns() {
+            clear
+            echo -e "${orange}─────────────────────────────────────────${neutral}"
+            echo -e "${green}      .:::. TURN ON/OFF SLOWDNS .:::.      ${neutral}"
+            echo -e "${orange}─────────────────────────────────────────${neutral}"
+            echo -e ""
+
+            if [ -f /etc/slowdns/domain ] && [ -f /etc/systemd/system/dnstt-server.service ]; then
+                if systemctl is-enabled --quiet dnstt-server 2>/dev/null; then
+                    echo -e "  ${green}Status saat ini: ON${neutral}"
+                else
+                    echo -e "  ${yellow}Status saat ini: OFF${neutral}"
+                fi
+            else
+                echo -e "  ${yellow}Status saat ini: OFF${neutral}"
+            fi
+            echo -e ""
+            echo -e "  ${green}1.${neutral} ON"
+            echo -e "  ${green}2.${neutral} OFF"
+            echo -e "  ${green}x.${neutral} Batal"
+            echo -e ""
+            read -p " Pilih (1/2/x): " td
+            case "$td" in
+                2)
+                    systemctl stop dnstt-server 2>/dev/null
+                    systemctl disable dnstt-server 2>/dev/null
+                    if [ -f /etc/slowdns/domain ]; then
+                        mv -f /etc/slowdns/domain /etc/slowdns/domain.disabled 2>/dev/null
+                    fi
+                    if [ -f /etc/slowdns/routes.conf ]; then
+                        mv -f /etc/slowdns/routes.conf /etc/slowdns/routes.conf.disabled 2>/dev/null
+                    fi
+                    rm -f /etc/systemd/system/dnstt-server.service
+                    systemctl daemon-reload 2>/dev/null
+                    systemctl reset-failed dnstt-server 2>/dev/null || true
+                    echo -e ""
+                    echo -e "  ${green}SlowDNS dimatikan${neutral}"
+                    echo -e "  ${yellow}Kunci + biner tetap disimpan; nyalakan lagi lewat opsi ini.${neutral}"
+                    echo -e "  ${yellow}Status OFF akan bertahan pada update berikutnya.${neutral}"
+                    echo -e ""
+                    read -n 1 -s -r -p "Press any key to return to the menu"
+                    return
+                    ;;
+                1)
+                    if [ ! -x /etc/slowdns/dnstt-server ]; then
+                        echo -e "  ${red}biner dnstt belum ada, jalankan update/instalasi dulu${neutral}"
+                        read -n 1 -s -r -p "Press any key to return to the menu"
+                        return
+                    fi
+                    if [ -f /etc/slowdns/domain.disabled ]; then
+                        mv -f /etc/slowdns/domain.disabled /etc/slowdns/domain 2>/dev/null
+                    fi
+                    if [ ! -f /etc/slowdns/domain ]; then
+                        read -p "  Masukkan domain SlowDNS (mis. sub.domain.com): " dom
+                        dom=$(printf '%s' "$dom" | tr -d '[:space:]')
+                        if printf '%s' "$dom" | grep -Eq '^[A-Za-z0-9.-]+$' && printf '%s' "$dom" | grep -Eq '\.'; then
+                            printf '%s\n' "$dom" > /etc/slowdns/domain
+                            chmod 644 /etc/slowdns/domain
+                            echo -e "  ${yellow}Pastikan record delegasi Cloudflare sudah dibuat (opsi 9 / proses instalasi otomatis).${neutral}"
+                        else
+                            echo -e "  ${red}Batal: domain tidak valid atau kosong${neutral}"
+                            read -n 1 -s -r -p "Press any key to return to the menu"
+                            return
+                        fi
+                    fi
+                    domain=$(tr -d '[:space:]' 2>/dev/null < /etc/slowdns/domain)
+                    printf '%s 127.0.0.1:22\nvm.%s 127.0.0.1:10002\nvl.%s 127.0.0.1:10001\ntr.%s 127.0.0.1:10003\n' "$domain" "$domain" "$domain" "$domain" > /etc/slowdns/routes.conf
+                    chmod 644 /etc/slowdns/routes.conf
+                    cat > /etc/systemd/system/dnstt-server.service <<'EOFUNIT'
+[Unit]
+Description=ZidStore Tunnel SlowDNS Server (multi-route)
+Documentation=https://t.me/zidstoretunnel
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/etc/slowdns/dnstt-server -udp 0.0.0.0:5300 -privkey-file /etc/slowdns/server.key -routes-file /etc/slowdns/routes.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOFUNIT
+                    chmod 644 /etc/systemd/system/dnstt-server.service
+                    systemctl daemon-reload
+                    systemctl enable dnstt-server 2>/dev/null
+                    systemctl restart dnstt-server 2>/dev/null
+                    sleep 1
+                    if systemctl is-active --quiet dnstt-server; then
+                        echo -e "  ${green}dnstt-server: GOOD${neutral}"
+                    else
+                        echo -e "  ${red}dnstt-server: BAD${neutral}"
+                    fi
+                    read -n 1 -s -r -p "Press any key to return to the menu"
+                    return
+                    ;;
+                x|X)
+                    read -n 1 -s -r -p "Press any key to return to the menu"
+                    return
+                    ;;
+                *)
+                    echo -e "  ${red}Pilihan tidak valid${neutral}"
+                    read -n 1 -s -r -p "Press any key to return to the menu"
+                    return
+                    ;;
+            esac
+        }
+
 setup_bot_telegram() {
     clear
     echo -e "${orange}─────────────────────────────────────────${neutral}"
@@ -623,12 +734,13 @@ setup_bot_telegram() {
         echo -e "    ${green}11.${neutral} Load server system"
         echo -e "    ${green}12.${neutral} Setting Auto Reboot"
         echo -e "    ${green}13.${neutral} Restart/Reboot server"
+        echo -e "    ${green}14.${neutral} Turn ON/OFF SlowDNS"
         echo -e "    ${green}x.${neutral} Exit system settings"
         echo -e "${orange}─────────────────────────────────────────${neutral}"
         print_rainbow "─────────────────────────────────────────"
         echo -e "          ${orange}───${green}───${yellow}───${blue}───${purple}───${red}───${neutral}"
         echo -e ""
-        read -p " Choose an option (1-13) or type 'x' to exit: " menu
+        read -p " Choose an option (1-14) or type 'x' to exit: " menu
         case $menu in
             1) setup_bot_telegram ;;
             2) running ;;
@@ -643,6 +755,7 @@ setup_bot_telegram() {
             11) gotop ;;
             12) setting_reboot_jam_reboot  ;;
             13) reboot ;;
+            14) toggle_slowdns ;;
             x | X)
                 echo -e ""
                 echo -e "   ${green}Thank you for using our service.${neutral}"

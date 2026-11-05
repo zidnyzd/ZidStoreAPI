@@ -264,14 +264,19 @@ app.use(checkPassword);
 
 // Create ssh user
 app.get("/createssh", (req, res) => {
-  const { user, password, exp, iplimit } = req.query;
+  const { user, password, exp, iplimit, quota } = req.query;
   if (!user || !password || !exp || !iplimit) {
     return res.status(400).json({ error: 'Username, expiry, iplimit, dan password diperlukan' });
   }
+  // Kuota SSH opsional (slot ke-6 apicreate): kosong/0 = unlimited (tanpa berkas kuota).
+  const quotaArg = quota === undefined ? '0' : String(quota);
+  if (!/^[0-9]+$/.test(quotaArg)) {
+    return res.status(400).json({ error: 'quota harus angka' });
+  }
   
-  console.log(`Menerima permintaan untuk membuat akun SSH dengan user: ${user}, exp: ${exp}, iplimit: ${iplimit}, password: ${password}`);
+  console.log(`Menerima permintaan untuk membuat akun SSH dengan user: ${user}, exp: ${exp}, iplimit: ${iplimit}, quota: ${quotaArg}, password: ${password}`);
   
-  const child = spawn("/bin/bash", ["-c", `apicreate ssh ${user} ${password} ${exp} ${iplimit}`], {
+  const child = spawn("/bin/bash", ["-c", `apicreate ssh ${user} ${password} ${exp} ${iplimit} ${quotaArg}`], {
     stdio: ['pipe', 'pipe', 'pipe']
   });
   
@@ -308,7 +313,8 @@ app.get("/createssh", (req, res) => {
             domain: jsonResponse.data.domain,
             ns_domain: jsonResponse.data.ns_domain,
             city: jsonResponse.data.city,
-            pubkey: jsonResponse.data.pubkey
+            pubkey: jsonResponse.data.pubkey,
+            quota: jsonResponse.data.quota
           }
         });
       } else {

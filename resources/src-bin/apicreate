@@ -757,6 +757,7 @@ END
       local password=$3
       local expiration_date=$4
       local ip_limit=$5
+      local quota=$6
       if grep -q "^### $username " /etc/ssh/.ssh.db; then
         username="$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 5)${username}"
       fi
@@ -766,6 +767,15 @@ END
 
       if [[ "$ip_limit" != "0" ]]; then
         echo "$ip_limit" >"/etc/ssh/$username"
+      fi
+      # Kuota SSH (slot ke-6, opsional): tulis /etc/ssh/quota/<user> dalam byte + berkas usage.
+      # Kosong/0 = unlimited (tanpa berkas), pola sama dengan akun Xray dan apirenew.
+      if [[ -n "$quota" && "$quota" != "0" && "$quota" =~ ^[0-9]+$ ]]; then
+        mkdir -p /etc/ssh/quota /etc/ssh/usage 2>/dev/null
+        echo "$((quota * 1024 * 1024 * 1024))" >"/etc/ssh/quota/$username"
+        echo "0" >"/etc/ssh/usage/$username"
+        chmod 600 "/etc/ssh/quota/$username" "/etc/ssh/usage/$username" 2>/dev/null || true
+        chown root:root "/etc/ssh/quota/$username" "/etc/ssh/usage/$username" 2>/dev/null || true
       fi
       echo "### $username $(date -d "$expiration_date days" +"%Y-%m-%d")" >>"/etc/ssh/.ssh.db"
 
@@ -796,6 +806,12 @@ WSS Payload: GET wss://BUG.COM/ HTTP/1.1[crlf]Host: $domain[crlf]Upgrade: websoc
 Expiration       : $exp
 END
 
+      ssh_quota_json=""
+      if [[ -n "$quota" && "$quota" != "0" && "$quota" =~ ^[0-9]+$ ]]; then
+        ssh_quota_json=",
+            \"quota\": \"$quota GB\""
+      fi
+
       echo "{
         \"status\": \"success\",
         \"message\": \"SSH account successfully created\",
@@ -808,7 +824,7 @@ END
             \"ns_domain\": \"$ns_domain\",
             \"slowdns_host\": \"$slowdns_host_ssh\",
             \"city\": \"$city\",
-            \"pubkey\": \"$public_key\"
+            \"pubkey\": \"$public_key\"${ssh_quota_json}
         }
     }"
     }
@@ -874,7 +890,7 @@ END
         echo '{"status": "error", "message": "Parameter $5 harus angka"}'
         exit 1
       fi
-      create_ssh_134 "$1" "$2" "$3" "$4" "$5"
+      create_ssh_134 "$1" "$2" "$3" "$4" "$5" "$6"
       ;;
     *)
       echo '{"status": "error", "message": "Invalid account type"}'

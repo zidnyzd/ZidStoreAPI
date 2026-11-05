@@ -255,16 +255,32 @@ perbarui_ssh() {
     # Hitung sisa hari aktif
     days_left=$((($(date -d "$old_exp" +%s) - $(date +%s)) / 86400))
 
-    # IP limit tetap ditulis ke /etc/ssh/<user> seperti sebelumnya untuk kompatibilitas limitipssh
-    if [[ -n "${ip_limit:-}" && "${ip_limit}" != "0" ]]; then
-        echo "${ip_limit}" >/etc/ssh/${username}
-    elif [[ -n "${quota:-}" ]]; then
-        # Fallback kompatibel jika api hanya kirim quota
-        echo "${quota}" >/etc/ssh/${username}
+    # Deteksi bridge lama: hanya mengirim quota di slot ke-4, ip_limit kosong.
+    _quota_is_legacy=0
+    if [[ -z "${ip_limit:-}" && -n "${quota:-}" ]]; then _quota_is_legacy=1; fi
+
+    # IP limit: generasi baru selalu mengirim ip_limit eksplisit (0/kosong = tanpa limit).
+    if [[ -n "${ip_limit:-}" ]]; then
+        if [[ "${ip_limit}" != "0" ]]; then
+            echo "${ip_limit}" >"/etc/ssh/${username}"
+        else
+            rm -f "/etc/ssh/${username}"
+        fi
+    elif (( _quota_is_legacy )); then
+        # Bridge lama: nilai di slot kuota sebenarnya adalah limit IP.
+        if [[ "${quota}" != "0" ]]; then
+            echo "${quota}" >"/etc/ssh/${username}"
+        else
+            rm -f "/etc/ssh/${username}"
+        fi
     fi
 
-    # Kuota data ditulis ke /etc/ssh/quota/<user> dalam byte (konversi GB -> byte)
-    if [[ -n "${quota:-}" && "${quota}" != "0" ]]; then
+    # Kuota data ditulis ke /etc/ssh/quota/<user> dalam byte (konversi GB -> byte).
+    # quota=0/kosong = hapus berkas kuota (unlimited), pola sama dengan akun Xray.
+    # Bridge lama: slot kuota berisi iplimit, JANGAN ditulis sebagai kuota data.
+    if (( _quota_is_legacy )); then
+        :
+    elif [[ -n "${quota:-}" && "${quota}" != "0" ]]; then
         if [[ "${quota}" =~ ^[0-9]+$ ]]; then
             quota_bytes=$((quota * 1024 * 1024 * 1024))
         else
@@ -277,6 +293,8 @@ perbarui_ssh() {
             chmod 600 /etc/ssh/quota/${username} /etc/ssh/usage/${username} 2>/dev/null || true
             chown root:root /etc/ssh/quota/${username} /etc/ssh/usage/${username} 2>/dev/null || true
         fi
+    else
+        rm -f "/etc/ssh/quota/${username}" "/etc/ssh/usage/${username}"
     fi
 
     # Buka lock jika ter-lock oleh quota-ssh

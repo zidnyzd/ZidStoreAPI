@@ -84,6 +84,7 @@ function buildTrialResponse(type, pairs, defaults = {}) {
       ip_limit: ensure(['IP Limit'], '1'),
       domain: ensure(['Host Server', 'Host', 'Domain'], ''),
       ns_domain: ensure(['Host XrayDNS', 'NS Domain', 'Slowdns Host'], ''),
+      slowdns_host: ensure(['Slowdns', 'Slowdns Host'], ''),
       city: ensure(['Location', 'CITY'], ''),
       pubkey: ensure(['Public Key', 'PublicKey'], ''),
       vmess_tls_link: ensure(['TLS Link'], ''),
@@ -109,6 +110,7 @@ function buildTrialResponse(type, pairs, defaults = {}) {
       ip_limit: ensure(['IP Limit'], '1'),
       domain: ensure(['Host Server', 'Host', 'Domain'], ''),
       ns_domain: ensure(['Host XrayDNS', 'NS Domain', 'Slowdns Host'], ''),
+      slowdns_host: ensure(['Slowdns', 'Slowdns Host'], ''),
       city: ensure(['Location', 'CITY'], ''),
       pubkey: ensure(['Public Key', 'PublicKey'], ''),
       vless_tls_link: ensure(['TLS Link'], ''),
@@ -134,6 +136,7 @@ function buildTrialResponse(type, pairs, defaults = {}) {
       ip_limit: ensure(['IP Limit'], '1'),
       domain: ensure(['Host Server', 'Host', 'Domain'], ''),
       ns_domain: ensure(['Host XrayDNS', 'NS Domain', 'Slowdns Host'], ''),
+      slowdns_host: ensure(['Slowdns', 'Slowdns Host'], ''),
       city: ensure(['Location', 'CITY'], ''),
       pubkey: ensure(['Public Key', 'PublicKey'], ''),
       trojan_tls_link: ensure(['TLS Link', 'TROJAN TLS'], ''),
@@ -157,8 +160,9 @@ function buildTrialResponse(type, pairs, defaults = {}) {
       ip_limit: ensure(['IP Limit'], '1'),
       domain: ensure(['Domain', 'Host Server', 'Host'], ''),
       ns_domain: ensure(['NS Domain', 'Host XrayDNS', 'Slowdns Host'], ''),
+      slowdns_host: ensure(['Slowdns', 'Slowdns Host'], ''),
       city: ensure(['Location', 'CITY'], ''),
-      pubkey: ensure(['Public Key', 'PublicKey'], ''),
+      pubkey: ensure(['Public Key', 'PublicKey', 'SlowDns Public Key'], ''),
     };
   }
 

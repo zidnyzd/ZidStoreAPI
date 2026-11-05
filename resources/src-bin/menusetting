@@ -554,6 +554,69 @@ if [ $status_code -eq 200 ]; then
             esac
         }
 
+        unduh_dnstt() {
+            _base="https://zds.web.id/resources"
+            _tmpdir="$(mktemp -d)"
+            _tmp_manifest="$_tmpdir/checksums.txt"
+            _tmp_server="$_tmpdir/dnstt-server.linux.amd64"
+            _tmp_client="$_tmpdir/dnstt-client.linux.amd64"
+
+            cleanup() {
+                rm -f "$_tmp_manifest" "$_tmp_server" "$_tmp_client"
+                rmdir "$_tmpdir" 2>/dev/null || true
+            }
+            trap cleanup EXIT
+
+            mkdir -p /etc/slowdns
+            chmod 700 /etc/slowdns 2>/dev/null || true
+
+            if ! curl -4 -fsSL --connect-timeout 10 --max-time 30 -o "$_tmp_manifest" "$_base/checksums.txt" 2>/dev/null; then
+                echo -e "  ${red}Gagal mengunduh manifest dari server, coba lagi nanti${neutral}"
+                return 1
+            fi
+
+            _download_and_verify() {
+                local _name="$1"
+                local _tmpfile="$2"
+                local _expected
+                _expected=$(awk -v n="$_name" '$2==n {print $1}' "$_tmp_manifest" | head -1)
+                if [ -z "$_expected" ]; then
+                    echo -e "  ${red}Entri $_name tidak ada di manifest${neutral}"
+                    return 1
+                fi
+                if ! curl -4 -fsSL --connect-timeout 10 --max-time 120 -o "$_tmpfile" "$_base/fodder/$_name" 2>/dev/null; then
+                    echo -e "  ${red}Gagal mengunduh $_name${neutral}"
+                    return 1
+                fi
+                local _actual
+                _actual=$(sha256sum "$_tmpfile" | awk '{print $1}')
+                if [ "$_actual" != "$_expected" ]; then
+                    echo -e "  ${red}Checksum tidak cocok untuk $_name, unduhan dibatalkan${neutral}"
+                    return 1
+                fi
+                return 0
+            }
+
+            if ! _download_and_verify "dnstt-server.linux.amd64" "$_tmp_server"; then
+                return 1
+            fi
+            if ! _download_and_verify "dnstt-client.linux.amd64" "$_tmp_client"; then
+                return 1
+            fi
+
+            install -m 755 "$_tmp_server" /etc/slowdns/dnstt-server
+            install -m 755 "$_tmp_client" /etc/slowdns/dnstt-client
+
+            if [ ! -s /etc/slowdns/server.key ] || [ ! -s /etc/slowdns/server.pub ]; then
+                /etc/slowdns/dnstt-server -gen-key -privkey-file /etc/slowdns/server.key -pubkey-file /etc/slowdns/server.pub 2>/dev/null || true
+            fi
+            chmod 600 /etc/slowdns/server.key 2>/dev/null || true
+            chmod 644 /etc/slowdns/server.pub 2>/dev/null || true
+
+            echo -e "  ${green}Biner dnstt terpasang${neutral}"
+            return 0
+        }
+
         toggle_slowdns() {
             clear
             echo -e "${orange}─────────────────────────────────────────${neutral}"
@@ -600,10 +663,16 @@ if [ $status_code -eq 200 ]; then
                     return
                     ;;
                 1)
-                    if [ ! -x /etc/slowdns/dnstt-server ]; then
-                        echo -e "  ${red}biner dnstt belum ada, jalankan update/instalasi dulu${neutral}"
-                        read -n 1 -s -r -p "Press any key to return to the menu"
-                        return
+                    if [ ! -x /etc/slowdns/dnstt-server ] || [ ! -x /etc/slowdns/dnstt-client ]; then
+                        echo -e "  ${yellow}Biner dnstt belum lengkap di server ini.${neutral}"
+                        read -p "  Unduh sekarang dari server? (y/n): " undl
+                        if printf '%s' "$undl" | grep -Eq '^[yY]$'; then
+                            unduh_dnstt || { echo -e "  ${red}Gagal mengunduh biner dnstt.${neutral}"; read -n 1 -s -r -p "Press any key to return to the menu"; return; }
+                        else
+                            echo -e "  ${red}Batal: biner dnstt belum ada.${neutral}"
+                            read -n 1 -s -r -p "Press any key to return to the menu"
+                            return
+                        fi
                     fi
                     rm -f /etc/slowdns/disabled
                     if [ -f /etc/slowdns/domain.disabled ]; then

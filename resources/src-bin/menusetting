@@ -688,7 +688,7 @@ if [ $status_code -eq 200 ]; then
                         if printf '%s' "$dom" | grep -Eq '^[A-Za-z0-9.-]+$' && printf '%s' "$dom" | grep -Eq '\.'; then
                             printf '%s\n' "$dom" > /etc/slowdns/domain
                             chmod 644 /etc/slowdns/domain
-                            echo -e "  ${yellow}Pastikan record delegasi Cloudflare sudah dibuat (opsi 9 / proses instalasi otomatis).${neutral}"
+                            echo -e "  ${yellow}Record DNS akan dicek/didaftarkan otomatis setelah aktivasi.${neutral}"
                         else
                             echo -e "  ${red}Batal: domain tidak valid atau kosong${neutral}"
                             read -n 1 -s -r -p "Press any key to return to the menu"
@@ -724,6 +724,35 @@ EOFUNIT
                     sleep 1
                     if systemctl is-active --quiet dnstt-server; then
                         echo -e "  ${green}dnstt-server: GOOD${neutral}"
+                        # --- R28 ENSURE-RECORDS BEGIN ---
+                        _dom=$(tr -d '[:space:]' < /etc/slowdns/domain 2>/dev/null)
+                        if [ -n "$_dom" ] && printf '%s' "$_dom" | grep -q '\.'; then
+                            _sub="${_dom%%.*}"
+                            _zone="${_dom#*.}"
+                            if [ "$_zone" = "zdnstt.web.id" ] && [ -f /root/.key ]; then
+                                _inst_domain=$(tr -d '[:space:]' < /etc/xray/domain 2>/dev/null)
+                                [ -n "$_inst_domain" ] || _inst_domain="$_dom"
+                                echo -e "  ${yellow}Memastikan record DNS (${_sub}.${_zone})...${neutral}"
+                                _ereg=$(curl -4 -s -m 25 -X POST "https://zds.web.id/api/slowdns/register" -H "X-API-Key: $(cat /root/.key)" -H "Content-Type: application/json" -d "{\"domain\":\"$_inst_domain\",\"sub\":\"$_sub\"}" 2>/dev/null)
+                                _eerr=$(printf '%s' "$_ereg" | sed -n 's/.*"error"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                                _ns_host="ns-${_sub}.${_zone}"
+                                _eok=0
+                                for _ei in 1 2 3 4 5; do
+                                    if getent ahosts "$_ns_host" 2>/dev/null | grep -qE '^[0-9]'; then _eok=1; break; fi
+                                    sleep 3
+                                done
+                                if [ "$_eok" -eq 1 ]; then
+                                    echo -e "  ${green}✓ Record DNS siap: ${_ns_host}${neutral}"
+                                elif [ -n "$_eerr" ] && [ "$_eerr" != "sub_taken" ]; then
+                                    echo -e "  ${yellow}Record belum terverifikasi (${_eerr}); SlowDNS tetap aktif. Cek Cloudflare.${neutral}"
+                                else
+                                    echo -e "  ${yellow}Record ${_ns_host} belum terlihat (propagasi?); SlowDNS tetap aktif. Cek Cloudflare.${neutral}"
+                                fi
+                            else
+                                echo -e "  ${yellow}Domain di luar zona kelolaan; pastikan record NS/A Cloudflare dibuat manual.${neutral}"
+                            fi
+                        fi
+                        # --- R28 ENSURE-RECORDS END ---
                     else
                         echo -e "  ${red}dnstt-server: BAD${neutral}"
                     fi

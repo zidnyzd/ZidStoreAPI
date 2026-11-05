@@ -39,7 +39,23 @@ const apiLimiter = rateLimit({
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+// --- R28 JSON-RESCUE BEGIN ---
+app.use(bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use((err, req, res, next) => {
+    if (err && err.type === 'entity.parse.failed' && req.rawBody) {
+        try {
+            const cleaned = req.rawBody.toString('utf8').replace(/[\u0000-\u001F]/g, ' ');
+            req.body = JSON.parse(cleaned);
+            return next();
+        } catch (e) { /* jatuh ke handler error umum */ }
+    }
+    if (err && err.type === 'entity.parse.failed') {
+        AuditLog.log('SERVER_ERROR', 'invalid_json: ' + err.message, req.ip);
+        return res.status(400).json({ error: 'invalid_json' });
+    }
+    return next(err);
+});
+// --- R28 JSON-RESCUE END ---
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(generalLimiter);
 app.use('/api', apiLimiter);

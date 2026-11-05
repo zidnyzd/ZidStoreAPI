@@ -13,7 +13,7 @@ process.env.DB_PATH = TEST_DB;
 
 if (fs.existsSync(TEST_DB)) fs.rmSync(TEST_DB);
 
-const { db, ApiKey } = require('../src/database/init');
+const { db, ApiKey, AuditLog } = require('../src/database/init');
 const apiRouter = require('../src/routes/api');
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -32,7 +32,23 @@ beforeEach(async () => {
 
 function makeApp() {
     const app = express();
-    app.use(bodyParser.json());
+    // Mirror of src/index.js R28 JSON-RESCUE: tangkap body JSON yang berisi
+    // karakter kontrol mentah (bodyParser normally gagal 500).
+    app.use(bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+    app.use((err, req, res, next) => {
+        if (err && err.type === 'entity.parse.failed' && req.rawBody) {
+            try {
+                const cleaned = req.rawBody.toString('utf8').replace(/[\u0000-\u001F]/g, ' ');
+                req.body = JSON.parse(cleaned);
+                return next();
+            } catch (e) { /* jatuh ke handler error umum */ }
+        }
+        if (err && err.type === 'entity.parse.failed') {
+            AuditLog.log('SERVER_ERROR', 'invalid_json: ' + err.message, req.ip);
+            return res.status(400).json({ error: 'invalid_json' });
+        }
+        return next(err);
+    });
     app.use('/', apiRouter);
     return app;
 }
@@ -159,6 +175,28 @@ test('install-logs (f): timestamp valid string tidak masuk extras', async () => 
     const payload = JSON.parse(row.payload);
     assert.strictEqual(payload.extra_field, 'should_be_captured');
     assert.strictEqual(payload.timestamp, undefined);
+});
+
+test('install-logs (g): body JSON valid tapi berisi kontrol mentah di payload -> 200, tersimpan', async () => {
+    insertKey('key-g', CLIENT_IP);
+    const app = makeApp();
+    const cntrl = String.fromCharCode(1);
+    const raw = JSON.stringify(VALID_BODY).replace(/}$/, ',"payload":{"error_snippet":"abc' + cntrl + 'def","note":"ok"}}');
+    const res = await req(app, 'POST', '/api/install-logs?key=key-g', raw);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(jsonBody(res).ok, true);
+    const row = latestRow();
+    const payload = JSON.parse(row.payload);
+    assert.strictEqual(payload.error_snippet, 'abc def');
+    assert.strictEqual(payload.note, 'ok');
+});
+
+test('install-logs (h): JSON benar-benar rusak -> 400 invalid_json, tidak ada 500', async () => {
+    insertKey('key-h', CLIENT_IP);
+    const app = makeApp();
+    const res = await req(app, 'POST', '/api/install-logs?key=key-h', '{"event":');
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(jsonBody(res).error, 'invalid_json');
 });
 
 test.after(() => {

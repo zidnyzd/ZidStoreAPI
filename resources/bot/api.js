@@ -1099,13 +1099,17 @@ app.get("/deleteshadowsocks", (req, res) => {
 // Renew ssh user
 app.get("/renewssh", (req, res) => {
   const { user, exp, iplimit } = req.query;
+  const quota = req.query.quota === undefined ? '0' : String(req.query.quota);
   if (!user || !exp || !iplimit) {
     return res.status(400).json({ error: 'Username, expiry, dan iplimit diperlukan' });
   }
-  
-  console.log(`Menerima permintaan untuk memperbarui akun SSH dengan user: ${user}, exp: ${exp}, iplimit: ${iplimit}`);
-  
-  const child = spawn("/bin/bash", ["-c", `apirenew ssh ${user} ${exp} ${iplimit}`], {
+  if (!/^[0-9]+$/.test(quota) || !/^[0-9]+$/.test(String(iplimit))) {
+    return res.status(400).json({ error: 'quota dan iplimit harus angka' });
+  }
+
+  console.log(`Menerima permintaan untuk memperbarui akun SSH dengan user: ${user}, exp: ${exp}, quota: ${quota}, iplimit: ${iplimit}`);
+
+  const child = spawn("/bin/bash", ["-c", `apirenew ssh ${user} ${exp} ${quota} ${iplimit}`], {
     stdio: ['pipe', 'pipe', 'pipe']
   });
   
@@ -1131,10 +1135,11 @@ app.get("/renewssh", (req, res) => {
       if (jsonResponse.status === "success") {
         res.json({
           status: "success",
-          message: "Akun Vmess test berhasil diperbarui",
+          message: "Akun SSH berhasil diperbarui",
           data: {
             username: jsonResponse.data.username,
             exp: jsonResponse.data.exp,
+            quota: jsonResponse.data.quota,
             limitip: jsonResponse.data.limitip
           }
         });

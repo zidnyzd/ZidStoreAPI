@@ -89,6 +89,27 @@ router.post('/api/install-logs', (req, res) => {
         return res.status(429).json({ error: 'rate_limit', retry_after: limitResult.retryAfter });
     }
 
+    const KNOWN_FIELDS = ['install_id','event','status','step','script_version','domain','ip','os','os_version','arch','timestamp','payload'];
+    const extra = {};
+    for (const k of Object.keys(body)) {
+        if (KNOWN_FIELDS.includes(k)) continue;
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+        extra[k] = body[k];
+    }
+
+    const payloadSource = (typeof body.payload === 'object' && body.payload !== null)
+        ? body.payload
+        : (Object.keys(extra).length > 0 ? extra : null);
+
+    let payloadData = payloadSource;
+    // capture installer extras (top-level fields) into payload
+    if (payloadData) {
+        const payloadJson = JSON.stringify(payloadData);
+        if (payloadJson.length > 4096) {
+            payloadData = { truncated: payloadJson.slice(0, 4000) };
+        }
+    }
+
     const payload = {
         install_id: body.install_id,
         event: body.event.slice(0, 50),
@@ -100,12 +121,8 @@ router.post('/api/install-logs', (req, res) => {
         os: typeof body.os === 'string' ? body.os.slice(0, 64) : null,
         os_version: typeof body.os_version === 'string' ? body.os_version.slice(0, 64) : null,
         arch: typeof body.arch === 'string' ? body.arch.slice(0, 64) : null,
-        payload: typeof body.payload === 'object' && body.payload !== null ? JSON.stringify(body.payload) : null
+        payload: payloadData
     };
-
-    if (payload.payload && payload.payload.length > 4096) {
-        payload.payload = payload.payload.slice(0, 4096);
-    }
 
     try {
         InstallLog.log(payload);

@@ -63,14 +63,17 @@ domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 uuid=$(cat /proc/sys/kernel/random/uuid)
 password=$(openssl rand -base64 16)
 
-if [ -f /etc/slowdns/domain ]; then
+if [ -f /etc/slowdns/disabled ]; then
+  ns_domain=""
+elif [ -f /etc/slowdns/domain ]; then
   ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
 elif [ -f /etc/xray/dns ]; then
   ns_domain=$(cat /etc/xray/dns)
 else
-  ns_domain="NS Domain not found"
+  ns_domain=""
 fi
 pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Public key not found")
+if [ -f /etc/slowdns/disabled ]; then pubkey=""; fi
 
 # Exception handling if config file doesn't exist
 if [ ! -f "/etc/xray/shadowsocks/config.json" ]; then
@@ -473,7 +476,7 @@ echo -e ""
   echo "Password     : ${password}"
   echo "WS Path      : /whatever/ss-ws"
   echo "ServiceName  : ss-grpc"
-  echo "Public Key   : ${pubkey}"
+  [ -n "$pubkey" ] && echo "Public Key   : ${pubkey}"
   echo "───────────────────────────"
   echo "SS WS Link   : ${ss_link_ws}"
   echo "───────────────────────────"

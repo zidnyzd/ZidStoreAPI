@@ -92,10 +92,12 @@ if [ $status_code -eq 200 ]; then
             # Compress backup directory
             tar -czf "${backup_dir}.tar.gz" -C "$(dirname "$backup_dir")" "$(basename "$backup_dir")" || { echo "Failed to compress backup"; }
             curl -s -F chat_id="$telegram_id" -F document=@"${backup_dir}.tar.gz" "https://api.telegram.org/bot$bot_token/sendDocument" >/dev/null 2>&1
-            if [ -f "/var/www/html/${backup_dir}.tar.gz" ]; then
-                rm -rf "/var/www/html/${backup_dir}.tar.gz"
-            fi
-            cp "${backup_dir}.tar.gz" /var/www/html/
+            # Arsip disimpan di luar webroot (JANGAN di /var/www/html: port 81 tanpa auth)
+            mkdir -p /root/backup && chmod 700 /root/backup
+            rm -f "/root/backup/$(basename "${backup_dir}").tar.gz" 2>/dev/null || true
+            cp "${backup_dir}.tar.gz" /root/backup/ && chmod 600 "/root/backup/$(basename "${backup_dir}").tar.gz"
+            # Sapu arsip yang mungkin tertinggal di webroot dari versi lama
+            rm -f "/var/www/html/${ipv4}-"*.tar.gz 2>/dev/null || true
             rm -rf "$backup_dir"
             rm -rf "${backup_dir}.tar.gz"
             echo "Backup completed"

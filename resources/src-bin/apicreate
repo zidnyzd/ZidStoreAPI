@@ -25,12 +25,14 @@ if [ $status_code -eq 200 ]; then
 
     # Get configuration information
     domain=$(get_config_info_123 "/etc/xray/domain" "Domain not found")
-    if [ -f /etc/slowdns/domain ]; then
+    if [ -f /etc/slowdns/disabled ]; then
+      ns_domain=""
+    elif [ -f /etc/slowdns/domain ]; then
       ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
     elif [ -f /etc/xray/dns ]; then
       ns_domain=$(cat /etc/xray/dns)
     else
-      ns_domain="NS Domain not found"
+      ns_domain=""
     fi
     if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then
       slowdns_host_vm="vm.${ns_domain}"; slowdns_host_vl="vl.${ns_domain}"; slowdns_host_tr="tr.${ns_domain}"; slowdns_host_ssh="${ns_domain}"
@@ -39,6 +41,7 @@ if [ $status_code -eq 200 ]; then
     fi
     city=$(get_config_info_123 "/etc/xray/city" "Location not found")
     public_key=$(get_config_info_123 "/etc/slowdns/server.pub" "Public key not found")
+    if [ -f /etc/slowdns/disabled ]; then public_key=""; fi
     uuid=$(cat /proc/sys/kernel/random/uuid)
     exp=$(date -d "$duration days" +"%Y-%m-%d")
     account_type=$1
@@ -788,9 +791,7 @@ Username         : $username
 Password         : $password
 ---------------------
 IP               : $ip
-Host             : $domain
-Slowdns Host     : ${ns_domain}
-Public Key       : ${public_key}
+Host             : $domain$(if [ -n "$ns_domain" ]; then printf '\nSlowdns Host     : %s\nPublic Key       : %s' "$ns_domain" "$public_key"; fi)
 Location         : $city
 OpenSSH Port     : 443, 80, 22
 UdpSSH Port      : 1-65535

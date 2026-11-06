@@ -61,14 +61,17 @@ ip_url="https://ipinfo.io/ip"
 city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
 
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
-if [ -f /etc/slowdns/domain ]; then
+if [ -f /etc/slowdns/disabled ]; then
+  ns_domain=""
+elif [ -f /etc/slowdns/domain ]; then
   ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
 elif [ -f /etc/xray/dns ]; then
   ns_domain=$(cat /etc/xray/dns)
 else
-  ns_domain="NS Domain not found"
+  ns_domain=""
 fi
 pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Public key not found")
+if [ -f /etc/slowdns/disabled ]; then pubkey=""; fi
 if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then
   slowdns_host="tr.${ns_domain}"
 else
@@ -170,8 +173,8 @@ print_rainbow "    Xray/Trojan Account    "
 print_rainbow "───────────────────────────"
 echo -e "Description  : ${user}"
 echo -e "Host Server  : ${domain}"
-echo -e "Slowdns      : ${slowdns_host}"
-echo -e "Public Key   : ${pubkey}"
+[ -n "$slowdns_host" ] && echo -e "Slowdns      : ${slowdns_host}"
+[ -n "$pubkey" ] && echo -e "Public Key   : ${pubkey}"
 echo -e "Location     : $city"
 echo -e "TLS Port     : 443"
 echo -e "Non-TLS Port : 80, 8080"

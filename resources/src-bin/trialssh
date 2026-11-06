@@ -61,14 +61,17 @@ city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
 
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 
-if [ -f /etc/slowdns/domain ]; then
+if [ -f /etc/slowdns/disabled ]; then
+  ns_domain=""
+elif [ -f /etc/slowdns/domain ]; then
   ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
 elif [ -f /etc/xray/dns ]; then
   ns_domain=$(cat /etc/xray/dns)
 else
-  ns_domain="NS Domain not found"
+  ns_domain=""
 fi
 pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Public key not found")
+if [ -f /etc/slowdns/disabled ]; then pubkey=""; fi
 
 # Loading animation
 echo ""
@@ -119,8 +122,8 @@ echo -e "Password         : $user"
 print_rainbow "───────────────────────────"
 echo -e "IP               : $ip"
 echo -e "Host             : $domain"
-echo -e "Slowdns Host     : ${ns_domain}"
-echo -e "SlowDns Public Key: ${pubkey}"
+[ -n "$ns_domain" ] && echo -e "Slowdns Host     : ${ns_domain}"
+[ -n "$pubkey" ] && echo -e "SlowDns Public Key: ${pubkey}"
 echo -e "Location         : $city"
 echo -e "OpenSSH Port     : 443, 80, 22"
 echo -e "UdpSSH Port      : 1-65535"

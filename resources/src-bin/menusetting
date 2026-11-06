@@ -649,6 +649,9 @@ if [ $status_code -eq 200 ]; then
                     if [ -f /etc/slowdns/routes.conf ]; then
                         mv -f /etc/slowdns/routes.conf /etc/slowdns/routes.conf.disabled 2>/dev/null
                     fi
+                    if [ -f /etc/xray/dns ]; then
+                        mv -f /etc/xray/dns /etc/xray/dns.disabled 2>/dev/null
+                    fi
                     rm -f /etc/systemd/system/dnstt-server.service
                     systemctl daemon-reload 2>/dev/null
                     systemctl reset-failed dnstt-server 2>/dev/null || true
@@ -681,6 +684,9 @@ if [ $status_code -eq 200 ]; then
                         else
                             rm -f /etc/slowdns/domain.disabled
                         fi
+                    fi
+                    if [ -f /etc/xray/dns.disabled ] && [ ! -f /etc/xray/dns ]; then
+                        mv -f /etc/xray/dns.disabled /etc/xray/dns 2>/dev/null
                     fi
                     if [ ! -f /etc/slowdns/domain ]; then
                         read -p "  Masukkan domain SlowDNS (mis. sub.domain.com): " dom

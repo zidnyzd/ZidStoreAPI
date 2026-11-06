@@ -63,14 +63,17 @@ city=$(cat /etc/xray/city 2>/dev/null || echo "Unknown city")
 domain=$(cat /etc/xray/domain 2>/dev/null || hostname -f)
 uuid=$(cat /proc/sys/kernel/random/uuid)
 
-if [ -f /etc/slowdns/domain ]; then
+if [ -f /etc/slowdns/disabled ]; then
+  ns_domain=""
+elif [ -f /etc/slowdns/domain ]; then
   ns_domain=$(tr -d '[:space:]' < /etc/slowdns/domain)
 elif [ -f /etc/xray/dns ]; then
   ns_domain=$(cat /etc/xray/dns)
 else
-  ns_domain="NS Domain not found"
+  ns_domain=""
 fi
 pubkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "Public key not found")
+if [ -f /etc/slowdns/disabled ]; then pubkey=""; fi
 
 # Loading animation
 echo ""
@@ -213,9 +216,7 @@ cat >/var/www/html/vmess-$user.txt <<-END
 
 - name: Vmess-$user-WS (CDN)
   type: vmess
-  server: ${domain}
-  slowdns_host: ${slowdns_host}
-  public_key: ${pubkey}
+  server: ${domain}$(if [ -n "$slowdns_host" ]; then printf '\n  slowdns_host: %s\n  public_key: %s' "$slowdns_host" "$pubkey"; fi)
   port: 443
   uuid: ${uuid}
   alterId: 0
@@ -355,8 +356,8 @@ print_rainbow "    Xray/Vmess Account    "
 print_rainbow "───────────────────────────"
 echo -e "Remarks      : ${user}"
 echo -e "Host Server  : ${domain}"
-if [[ "$ns_domain" == *.* && "$ns_domain" != "NS Domain not found" ]]; then echo -e "Slowdns Host : vm.${ns_domain}"; else echo -e "Slowdns Host : ${ns_domain}"; fi
-echo -e "Public Key   : ${pubkey}"
+if [ -n "$ns_domain" ]; then if [[ "$ns_domain" == *.* ]]; then echo -e "Slowdns Host : vm.${ns_domain}"; else echo -e "Slowdns Host : ${ns_domain}"; fi; fi
+[ -n "$pubkey" ] && echo -e "Public Key   : ${pubkey}"
 echo -e "Location     : $city"
 echo -e "Port TLS     : 443"
 echo -e "Port non TLS : 80, 8080"
@@ -404,7 +405,7 @@ echo -e ""
     echo "path         : /whatever/vmess"
     echo "servicename  : vmess-grpc"
     echo "user_id      : ${uuid}"
-    echo "public_key   : ${pubkey}"
+    [ -n "$pubkey" ] && echo "public_key   : ${pubkey}"
     echo "───────────────────────────"
     echo "tls_link     : ${vmess_tls}"
     echo "───────────────────────────"

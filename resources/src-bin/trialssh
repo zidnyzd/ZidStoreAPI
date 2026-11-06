@@ -108,7 +108,7 @@ done
 expiration=$(date -d "+$duration minutes" +"%Y-%m-%d %H:%M:%S")
 
 # Create SSH account
-useradd -e $(date -d "+$duration minutes" +"%Y-%m-%d") -s /bin/false -M $user
+useradd -e $(date -d "+$duration minutes +1 day" +"%Y-%m-%d") -s /bin/false -M $user
 echo "$user:$user" | chpasswd
 
 # Run tmux session to delete account after duration expires
